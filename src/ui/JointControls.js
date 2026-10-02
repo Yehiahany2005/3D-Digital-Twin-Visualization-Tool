@@ -19,10 +19,11 @@ function jogStep(joint) {
 }
 
 export class JointControls {
-  constructor({ container, filter, emptyMessage }) {
+  constructor({ container, filter, emptyMessage, emptyAction }) {
     this.container = container;
     this.filter = filter;
     this.emptyMessage = emptyMessage;
+    this.emptyAction = emptyAction;
     this.rows = [];
     this.rig = null;
     this.player = null;
@@ -46,6 +47,14 @@ export class JointControls {
       empty.className = 'empty-state';
       empty.textContent = this.emptyMessage;
       this.container.appendChild(empty);
+      if (this.emptyAction) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'secondary-button';
+        button.textContent = this.emptyAction.label;
+        button.addEventListener('click', this.emptyAction.onClick);
+        this.container.appendChild(button);
+      }
       return;
     }
 

@@ -59,6 +59,99 @@
             <div class="card-content joint-list" data-joints-list></div>
           </details>
 
+          <details class="sidebar-card rig-editor" data-rig-editor>
+            <summary><span class="card-title"><i data-lucide="wrench" aria-hidden="true"></i>Joint Setup</span><span class="summary-chevron" aria-hidden="true"></span></summary>
+            <div class="card-content rig-editor-content">
+              <section class="editor-section">
+                <div class="editor-section-head">
+                  <span class="editor-section-title">Moving parts</span>
+                  <span class="editor-count" data-selection-count>None selected</span>
+                </div>
+                <p class="editor-hint">Click the model to select what moves. Shift-click adds more parts.</p>
+                <ul class="part-chips" data-selection-list></ul>
+                <div class="button-row">
+                  <button type="button" data-select-parts aria-pressed="false">Select parts</button>
+                  <button type="button" data-select-parent title="Select the assembly that contains the selected parts">Parent ↑</button>
+                  <button type="button" data-clear-selection>Clear</button>
+                </div>
+              </section>
+
+              <section class="editor-section" data-joint-form>
+                <div class="editor-section-head">
+                  <span class="editor-section-title" data-form-title>New joint</span>
+                </div>
+                <label class="editor-field">Name<input type="text" data-field="name" autocomplete="off" /></label>
+                <label class="editor-field">Type
+                  <select data-field="type">
+                    <option value="revolute">Rotate (hinge)</option>
+                    <option value="prismatic">Slide (linear)</option>
+                    <option value="aim">Rotate to follow a point (cylinder)</option>
+                    <option value="stretch">Slide to follow a point (piston rod)</option>
+                  </select>
+                </label>
+                <label class="editor-field">Mounted on<select data-field="parent"></select></label>
+
+                <div class="editor-subsection" data-link-fields hidden>
+                  <label class="editor-field">Follows<select data-field="linkJoint"></select></label>
+                  <div class="button-row">
+                    <button type="button" data-pick-target>Pick follow point</button>
+                  </div>
+                  <small class="editor-hint" data-target-status>Click the point it should follow, e.g. the pin on the other part.</small>
+                </div>
+
+                <span class="editor-subtitle">Axis &amp; pivot</span>
+                <div class="button-row">
+                  <button type="button" data-pick-surface title="Click a round shaft, hole or flat face on the model">Pick from surface</button>
+                  <button type="button" data-part-centre>Part centre</button>
+                </div>
+                <div class="button-row axis-buttons">
+                  <button type="button" data-axis="x">X</button>
+                  <button type="button" data-axis="y">Y</button>
+                  <button type="button" data-axis="z">Z</button>
+                  <button type="button" data-flip-axis>Flip</button>
+                </div>
+                <div class="vector-field"><span>Axis</span>
+                  <input type="number" step="0.001" data-field="axisX" aria-label="Axis X" />
+                  <input type="number" step="0.001" data-field="axisY" aria-label="Axis Y" />
+                  <input type="number" step="0.001" data-field="axisZ" aria-label="Axis Z" />
+                </div>
+                <div class="vector-field"><span>Pivot mm</span>
+                  <input type="number" step="1" data-field="pivotX" aria-label="Pivot X in millimetres" />
+                  <input type="number" step="1" data-field="pivotY" aria-label="Pivot Y in millimetres" />
+                  <input type="number" step="1" data-field="pivotZ" aria-label="Pivot Z in millimetres" />
+                </div>
+
+                <div class="limit-fields" data-limit-fields>
+                  <label class="editor-field">Min <small data-unit>°</small><input type="number" data-field="min" /></label>
+                  <label class="editor-field">Max <small data-unit>°</small><input type="number" data-field="max" /></label>
+                  <label class="editor-field">Speed <small data-unit-speed>°/s</small><input type="number" min="0" data-field="speed" /></label>
+                </div>
+
+                <div class="button-row">
+                  <button type="button" class="primary-button" data-save-joint>Create joint</button>
+                  <button type="button" data-cancel-edit hidden>Cancel</button>
+                </div>
+                <p class="editor-message" data-editor-message role="status" hidden></p>
+              </section>
+
+              <section class="editor-section">
+                <div class="editor-section-head"><span class="editor-section-title">Joints in this rig</span></div>
+                <ul class="joint-defs" data-joint-defs></ul>
+              </section>
+
+              <section class="editor-section">
+                <div class="editor-section-head"><span class="editor-section-title">Rig file</span></div>
+                <div class="button-row">
+                  <button type="button" data-export-rig>Export</button>
+                  <button type="button" data-import-rig>Import</button>
+                  <button type="button" data-reset-rig>Reset</button>
+                </div>
+                <input type="file" accept=".json,application/json" data-import-rig-input hidden />
+                <small class="editor-hint" data-save-state>Changes are saved in this browser. Export a .rig.json file to keep or share the rig.</small>
+              </section>
+            </div>
+          </details>
+
           <details class="sidebar-card" open>
             <summary><span class="card-title"><i data-lucide="move-3d" aria-hidden="true"></i>Object Motion</span><span class="summary-chevron" aria-hidden="true"></span></summary>
             <div class="card-content">

@@ -50,6 +50,15 @@ function sortByDependencies(definitions, dependenciesOf) {
   return sorted;
 }
 
+// The object's parent in the file's original hierarchy, even after a rig re-parented it.
+export function originalParent(object) {
+  return object.userData.rigOriginalParent || object.parent;
+}
+
+export function partReference(object) {
+  return { path: object.userData.partPath, name: object.name || '' };
+}
+
 export function emptyRigDefinition() {
   return { version: 1, joints: [], poses: [], sequences: [] };
 }
@@ -201,6 +210,8 @@ export class Rig {
         value: Number.isFinite(definition.zero) ? definition.zero : 0,
         group,
         parts,
+        frameMatrix: frame,
+        pivotInModel: pivot.clone(),
         axis: axis.normalize(),
         restPosition: group.position.clone(),
         restQuaternion: group.quaternion.clone(),
@@ -261,6 +272,41 @@ export class Rig {
   dispose() {
     this.teardown();
     this.listeners.clear();
+  }
+
+  // Runs fn with every joint at its rest pose (the pose the file was exported in),
+  // which is the pose joint pivots and axes are defined in. Restores the pose after.
+  withRestPose(fn) {
+    const pose = this.getPose();
+    const rest = {};
+    this.joints.forEach((joint) => {
+      if (!joint.driven) rest[joint.id] = joint.zero;
+    });
+    this.setValues(rest);
+    this.root.updateMatrixWorld(true);
+    try {
+      return fn();
+    } finally {
+      this.setValues(pose);
+      this.root.updateMatrixWorld(true);
+    }
+  }
+
+  // Converts a pivot/axis given in model coordinates (rest pose) into world space for
+  // the current pose, as if mounted on `parentId`. Used to draw the joint being edited.
+  modelToWorld(point, direction, parentId) {
+    const parent = parentId ? this.jointsById.get(parentId) : null;
+    if (!parent?.group) {
+      return {
+        point: this.content.localToWorld(point.clone()),
+        direction: direction.clone().transformDirection(this.content.matrixWorld),
+      };
+    }
+    // At rest a joint group sits at its pivot with no rotation relative to the model.
+    return {
+      point: parent.group.localToWorld(point.clone().sub(parent.pivotInModel)),
+      direction: direction.clone().transformDirection(parent.group.matrixWorld),
+    };
   }
 
   getValue(id) {

@@ -6,6 +6,7 @@ import {
   PlayCircle,
   SlidersHorizontal,
   TerminalSquare,
+  Wrench,
   createIcons,
 } from 'lucide';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -17,13 +18,16 @@ import { Rig, emptyRigDefinition } from './motion/Rig.js';
 import { MotionPlayer } from './motion/MotionPlayer.js';
 import { JointControls } from './ui/JointControls.js';
 import { CommandsPanel } from './ui/CommandsPanel.js';
+import { RigEditorPanel } from './ui/RigEditorPanel.js';
+import { JointGizmo, SelectionOutline, ViewportPicker } from './scene/RigHelpers.js';
+import { loadSavedRig } from './motion/RigStore.js';
 import { AssetManager } from './scene/AssetManager.js';
 import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
 import { DigitalTwinViewManager } from './scene/DigitalTwinViewManager.js';
 import { fitEnvironment } from './scene/fitEnvironment.js';
 import './style.css';
 
-createIcons({ icons: { Box, Cpu, Move3d, PlayCircle, SlidersHorizontal, TerminalSquare } });
+createIcons({ icons: { Box, Cpu, Move3d, PlayCircle, SlidersHorizontal, TerminalSquare, Wrench } });
 
 function updateClock() {
   const timeElement = document.querySelector('[data-current-time]');
@@ -69,6 +73,7 @@ const jointControls = new JointControls({
   container: document.querySelector('[data-joints-list]'),
   filter: (joint) => joint.kind === 'joint',
   emptyMessage: 'This model has no movable joints yet.',
+  emptyAction: { label: 'Set up joints', onClick: () => rigEditor.open() },
 });
 const objectMotionControls = new JointControls({
   container: document.querySelector('[data-object-motion-list]'),
@@ -82,6 +87,13 @@ const commandsPanel = new CommandsPanel({
   stopButton: document.querySelector('[data-motion-stop]'),
 });
 
+const rigEditor = new RigEditorPanel({
+  card: document.querySelector('[data-rig-editor]'),
+  picker: new ViewportPicker({ domElement: rendererManager.renderer.domElement, camera: cameraManager.camera }),
+  outline: new SelectionOutline(sceneManager.scene),
+  gizmo: new JointGizmo(sceneManager.scene),
+});
+
 document.querySelector('[data-object-reset]').addEventListener('click', () => {
   if (!activeAsset) return;
   activeAsset.player.stop();
@@ -91,11 +103,15 @@ document.querySelector('[data-object-reset]').addEventListener('click', () => {
 // Each asset keeps its own rig and player, so switching assets preserves its pose.
 function ensureRig(asset) {
   if (asset.rig) return;
-  asset.rig = new Rig({
-    root: asset.model,
-    content: asset.content,
-    definition: asset.config.rig ? structuredClone(asset.config.rig) : emptyRigDefinition(),
-  });
+  const fallback = asset.config.rig ? structuredClone(asset.config.rig) : emptyRigDefinition();
+  const saved = loadSavedRig(asset.config);
+  asset.rig = new Rig({ root: asset.model, content: asset.content, definition: emptyRigDefinition() });
+  try {
+    asset.rig.setDefinition(saved || fallback);
+  } catch (error) {
+    console.warn('Rig could not be built; using the default rig instead.', error);
+    asset.rig.setDefinition(saved ? fallback : emptyRigDefinition());
+  }
   asset.rig.warnings.forEach((warning) => console.warn(warning));
   asset.player = new MotionPlayer(asset.rig);
 }
@@ -127,6 +143,7 @@ function handleAssetLoaded(asset) {
   jointControls.setRig(asset.rig, asset.player);
   objectMotionControls.setRig(asset.rig, asset.player);
   commandsPanel.setRig(asset.rig, asset.player);
+  rigEditor.setAsset(asset);
   assetSelectionPanel.update(asset);
 }
 
@@ -171,6 +188,7 @@ function render() {
   activeAsset?.player.update(deltaTime);
   jointControls.update();
   objectMotionControls.update();
+  rigEditor.update();
   assetManager.update(deltaTime);
   visualizationManager?.update(deltaTime);
   controls.update();
