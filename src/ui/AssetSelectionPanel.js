@@ -47,8 +47,6 @@ export class AssetSelectionPanel {
   update(asset) {
     const { config, animations } = asset;
     this.selectElement.value = config.id;
-    this.infoTitle.textContent = config.robotController ? 'Robot Information' : 'Asset Information';
-    this.assetLabel.textContent = config.robotController ? 'Robot Model' : 'Asset Name';
     this.nameElement.textContent = config.name;
     this.typeElement.textContent = config.type;
     this.animationCountElement.textContent = String(animations.length);

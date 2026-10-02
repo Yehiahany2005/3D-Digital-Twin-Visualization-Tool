@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import {
-  Activity,
   Box,
   Cpu,
+  Move3d,
   PlayCircle,
   SlidersHorizontal,
   TerminalSquare,
@@ -13,16 +13,17 @@ import { SceneManager } from './scene/SceneManager.js';
 import { CameraManager } from './scene/CameraManager.js';
 import { LightingManager } from './scene/LightingManager.js';
 import { RendererManager } from './scene/RendererManager.js';
-import { RobotController } from './scene/RobotController.js';
-import { RobotControlPanel } from './ui/RobotControlPanel.js';
-import { JointJogPanel } from './ui/JointJogPanel.js';
+import { Rig, emptyRigDefinition } from './motion/Rig.js';
+import { MotionPlayer } from './motion/MotionPlayer.js';
+import { JointControls } from './ui/JointControls.js';
+import { CommandsPanel } from './ui/CommandsPanel.js';
 import { AssetManager } from './scene/AssetManager.js';
 import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
 import { DigitalTwinViewManager } from './scene/DigitalTwinViewManager.js';
 import { fitEnvironment } from './scene/fitEnvironment.js';
 import './style.css';
 
-createIcons({ icons: { Activity, Box, Cpu, PlayCircle, SlidersHorizontal, TerminalSquare } });
+createIcons({ icons: { Box, Cpu, Move3d, PlayCircle, SlidersHorizontal, TerminalSquare } });
 
 function updateClock() {
   const timeElement = document.querySelector('[data-current-time]');
@@ -61,28 +62,48 @@ floor.receiveShadow = true;
 sceneManager.add(floor);
 
 const clock = new THREE.Clock();
-let robotController;
-let jointJogPanel;
-let robotControlPanel;
 let visualizationManager;
 let activeAsset;
 
-function setRobotOnlyVisibility(isRobot) {
-  document.querySelectorAll('[data-robot-only]').forEach((element) => {
-    element.hidden = !isRobot;
-  });
-}
+const jointControls = new JointControls({
+  container: document.querySelector('[data-joints-list]'),
+  filter: (joint) => joint.kind === 'joint',
+  emptyMessage: 'This model has no movable joints yet.',
+});
+const objectMotionControls = new JointControls({
+  container: document.querySelector('[data-object-motion-list]'),
+  filter: (joint) => joint.kind === 'base',
+  emptyMessage: '',
+});
+const commandsPanel = new CommandsPanel({
+  card: document.querySelector('[data-commands-card]'),
+  list: document.querySelector('[data-commands-list]'),
+  statusElement: document.querySelector('[data-motion-status]'),
+  stopButton: document.querySelector('[data-motion-stop]'),
+});
 
-function destroyRobotPanels() {
-  robotControlPanel?.destroy();
-  jointJogPanel?.destroy();
-  robotControlPanel = null;
-  jointJogPanel = null;
-  robotController = null;
+document.querySelector('[data-object-reset]').addEventListener('click', () => {
+  if (!activeAsset) return;
+  activeAsset.player.stop();
+  activeAsset.rig.setValues(Object.fromEntries(activeAsset.rig.baseJoints.map((joint) => [joint.id, 0])));
+});
+
+// Each asset keeps its own rig and player, so switching assets preserves its pose.
+function ensureRig(asset) {
+  if (asset.rig) return;
+  asset.rig = new Rig({
+    root: asset.model,
+    content: asset.content,
+    definition: asset.config.rig ? structuredClone(asset.config.rig) : emptyRigDefinition(),
+  });
+  asset.rig.warnings.forEach((warning) => console.warn(warning));
+  asset.player = new MotionPlayer(asset.rig);
 }
 
 function handleAssetLoaded(asset) {
+  activeAsset?.player?.stop();
   activeAsset = asset;
+  ensureRig(asset);
   if (visualizationManager) {
     visualizationManager.replaceRobot(asset.model);
   } else {
@@ -103,13 +124,9 @@ function handleAssetLoaded(asset) {
     lightGroups: [lightingGroup, visualizationManager.digitalLights],
   });
 
-  destroyRobotPanels();
-  setRobotOnlyVisibility(asset.config.robotController);
-  if (asset.config.robotController) {
-    robotController = new RobotController(asset.model);
-    robotControlPanel = new RobotControlPanel(robotController, document.querySelector('.control-panel'));
-    jointJogPanel = new JointJogPanel(robotController, document.querySelector('.jog-panel'));
-  }
+  jointControls.setRig(asset.rig, asset.player);
+  objectMotionControls.setRig(asset.rig, asset.player);
+  commandsPanel.setRig(asset.rig, asset.player);
   assetSelectionPanel.update(asset);
 }
 
@@ -151,8 +168,9 @@ window.addEventListener('resize', handleResize);
 
 function render() {
   const deltaTime = Math.min(clock.getDelta(), 0.1);
-  robotController?.update(deltaTime);
-  jointJogPanel?.update();
+  activeAsset?.player.update(deltaTime);
+  jointControls.update();
+  objectMotionControls.update();
   assetManager.update(deltaTime);
   visualizationManager?.update(deltaTime);
   controls.update();

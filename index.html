@@ -6,7 +6,7 @@
     <title>Digital Twin Demo</title>
   </head>
   <body>
-    <main id="app" aria-label="ABB Robotic Arm Digital Twin">
+    <main id="app" aria-label="Digital Twin">
       <header class="app-header">
         <div class="brand-block">
           <h1>Digital Twin 3d Visualization Demo</h1>
@@ -22,7 +22,7 @@
       </header> 
 
       <section class="workspace" aria-label="Digital twin workspace">
-        <aside class="sidebar" aria-label="Robot controls and information">
+        <aside class="sidebar" aria-label="Asset controls and information">
           <details class="sidebar-card asset-selection-card" open>
             <summary><span class="card-title"><i data-lucide="box" aria-hidden="true"></i>Digital Twin Asset</span><span class="summary-chevron" aria-hidden="true"></span></summary>
             <div class="card-content asset-selection-content">
@@ -36,60 +36,34 @@
           </details>
 
           <details class="sidebar-card model-card" open>
-            <summary><span class="card-title"><i data-lucide="cpu" aria-hidden="true"></i><span data-asset-info-title> Information</span></span><span class="summary-chevron" aria-hidden="true"></span></summary>
+            <summary><span class="card-title"><i data-lucide="cpu" aria-hidden="true"></i><span data-asset-info-title>Asset Information</span></span><span class="summary-chevron" aria-hidden="true"></span></summary>
             <div class="card-content model-highlight">
-              <span data-asset-label>Robot Model</span>
+              <span data-asset-label>Asset Name</span>
               <strong data-asset-name>ABB IRB 6760</strong>
               <small data-asset-type>Industrial Robot</small>
               <small>Animations: <b data-asset-animation-count>0</b></small>
             </div>
           </details>
 
-          <details class="sidebar-card" data-robot-only open>
-            <summary><span class="card-title"><i data-lucide="terminal-square" aria-hidden="true"></i>Robot Commands</span><span class="summary-chevron" aria-hidden="true"></span></summary>
-            <div class="card-content control-panel">
-              <p class="robot-state">Status: <strong data-robot-status>Idle</strong></p>
-              <div class="control-actions">
-                <button type="button" data-robot-action="Home">Home</button>
-                <button type="button" data-robot-action="ReachForward">Reach Forward</button>
-                <button type="button" data-robot-action="InspectionScan">Inspection Scan</button>
-                <button type="button" data-robot-action="Calibration">Calibration</button>
-              </div>
-            </div>
-          </details>
-
-          <details class="sidebar-card jog-panel" data-robot-only open>
-            <summary><span class="card-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Joint Jog</span><span class="summary-chevron" aria-hidden="true"></span></summary>
+          <details class="sidebar-card" data-commands-card open hidden>
+            <summary><span class="card-title"><i data-lucide="terminal-square" aria-hidden="true"></i>Commands</span><span class="summary-chevron" aria-hidden="true"></span></summary>
             <div class="card-content">
-              <div class="joint-angle-status" aria-live="polite">
-                <p>Current Joint Angles</p>
-                <div class="joint-angle-grid">
-                  <span>Axis 1</span><strong data-jog-summary="1">+0.0°</strong>
-                  <span>Axis 2</span><strong data-jog-summary="2">+0.0°</strong>
-                  <span>Axis 3</span><strong data-jog-summary="3">+0.0°</strong>
-                  <span>Axis 4</span><strong data-jog-summary="4">+0.0°</strong>
-                  <span>Axis 5</span><strong data-jog-summary="5">+0.0°</strong>
-                  <span>Axis 6</span><strong data-jog-summary="6">+0.0°</strong>
-                </div>
-              </div>
-              <div class="jog-actions">
-                <div class="jog-row"><span>Axis 1</span><button type="button" data-jog-link="Link1" data-jog-delta="-1">-</button><strong data-jog-angle="1">+0.0°</strong><button type="button" data-jog-link="Link1" data-jog-delta="1">+</button></div>
-                <div class="jog-row"><span>Axis 2</span><button type="button" data-jog-link="Link2" data-jog-delta="-1">-</button><strong data-jog-angle="2">+0.0°</strong><button type="button" data-jog-link="Link2" data-jog-delta="1">+</button></div>
-                <div class="jog-row"><span>Axis 3</span><button type="button" data-jog-link="Link3" data-jog-delta="-1">-</button><strong data-jog-angle="3">+0.0°</strong><button type="button" data-jog-link="Link3" data-jog-delta="1">+</button></div>
-                <div class="jog-row"><span>Axis 4</span><button type="button" data-jog-link="Link4" data-jog-delta="-1">-</button><strong data-jog-angle="4">+0.0°</strong><button type="button" data-jog-link="Link4" data-jog-delta="1">+</button></div>
-                <div class="jog-row"><span>Axis 5</span><button type="button" data-jog-link="Link5" data-jog-delta="-1">-</button><strong data-jog-angle="5">+0.0°</strong><button type="button" data-jog-link="Link5" data-jog-delta="1">+</button></div>
-                <div class="jog-row"><span>Axis 6</span><button type="button" data-jog-link="Link6" data-jog-delta="-1">-</button><strong data-jog-angle="6">+0.0°</strong><button type="button" data-jog-link="Link6" data-jog-delta="1">+</button></div>
-              </div>
+              <p class="robot-state">Status: <strong data-motion-status aria-live="polite">Idle</strong></p>
+              <div data-commands-list></div>
+              <button type="button" class="stop-button" data-motion-stop disabled>Stop</button>
             </div>
           </details>
 
-          <details class="sidebar-card" data-robot-only open>
-            <summary><span class="card-title"><i data-lucide="activity" aria-hidden="true"></i>Robot Status</span><span class="summary-chevron" aria-hidden="true"></span></summary>
-            <div class="card-content info-grid">
-              <span>Status</span><strong data-status-value>Idle</strong>
-              <span>Current Task</span><strong data-task-value>None</strong>
-              <span>Robot</span><strong>ABB IRB 6760</strong>
-              <span>Connection</span><strong class="value-accent">Connected</strong>
+          <details class="sidebar-card" open>
+            <summary><span class="card-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Joints</span><span class="summary-chevron" aria-hidden="true"></span></summary>
+            <div class="card-content joint-list" data-joints-list></div>
+          </details>
+
+          <details class="sidebar-card" open>
+            <summary><span class="card-title"><i data-lucide="move-3d" aria-hidden="true"></i>Object Motion</span><span class="summary-chevron" aria-hidden="true"></span></summary>
+            <div class="card-content">
+              <div class="joint-list" data-object-motion-list></div>
+              <button type="button" class="secondary-button" data-object-reset>Reset placement</button>
             </div>
           </details>
 
@@ -110,7 +84,7 @@
 
         </aside>
 
-        <section id="viewport" aria-label="3D robot viewport">
+        <section id="viewport" aria-label="3D viewport">
           <div class="viewport-label"></div>
         </section>
       </section>

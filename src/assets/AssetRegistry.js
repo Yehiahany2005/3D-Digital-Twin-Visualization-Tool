@@ -1,4 +1,5 @@
 import { formatLabel } from '../loaders/ModelLoader.js';
+import { ABB_IRB6760_RIG } from '../rigs/abbIrb6760.js';
 // ?url makes Vite copy each model into the production build and return its final URL.
 import robotUrl from './robot.glb?url';
 import forkliftUrl from './Forklift.glb?url';
@@ -14,49 +15,43 @@ export const ASSET_REGISTRY = [
     name: 'ABB IRB 6760',
     type: 'Industrial Robot',
     model: robotUrl,
-    robotController: true,
+    rig: ABB_IRB6760_RIG,
   },
   {
     id: 'forklift',
     name: 'Forklift',
     type: 'Industrial Vehicle',
     model: forkliftUrl,
-    robotController: false,
   },
   {
     id: 'abb_depalettizer',
     name: 'ABB Depalletizer',
     type: 'Industrial Machine',
     model: depalletizerUrl,
-    robotController: false,
   },
   {
     id: 'abb_robotpicker',
     name: 'ABB Robot Picker',
     type: 'Industrial Machine',
     model: itemPickerUrl,
-    robotController: false,
   },
     {
     id: 'Unitree_robot',
     name: 'Unitree Humanoid Robot',
     type: 'Robot',
     model: unitreeUrl,
-    robotController: false,
   },
     {
     id: 'Mira_robot',
     name: 'Mira Robot',
     type: 'Robot',
     model: miraUrl,
-    robotController: false,
   },
       {
     id: 'RoboticARM',
     name: 'Robotic Arm',
     type: 'Robot Arm',
     model: roboticArmUrl,
-    robotController: false,
   },
 ];
 
@@ -73,7 +68,6 @@ export function registerImportedAsset(file) {
     name: file.name.replace(/\.[^.]+$/, ''),
     type: `Imported ${formatLabel(file.name)} Model`,
     file,
-    robotController: false,
     imported: true,
   };
   ASSET_REGISTRY.push(config);
