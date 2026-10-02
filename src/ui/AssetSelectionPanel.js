@@ -1,4 +1,5 @@
 import { ASSET_REGISTRY, registerImportedAsset, unregisterAsset } from '../assets/AssetRegistry.js';
+import { IMPORT_ACCEPT, unsupportedFormatMessage } from '../loaders/ModelLoader.js';
 
 const NO_ANIMATIONS_MESSAGE = 'No embedded animations detected.';
 
@@ -19,6 +20,8 @@ export class AssetSelectionPanel {
     this.messageElement = messageElement;
     this.importInput = document.querySelector('[data-asset-import]');
     this.importButton = document.querySelector('[data-asset-import-button]');
+    this.statusElement = document.querySelector('[data-asset-status]');
+    this.importInput.accept = IMPORT_ACCEPT;
 
     ASSET_REGISTRY.forEach((asset) => this.addOption(asset));
 
@@ -30,6 +33,7 @@ export class AssetSelectionPanel {
     });
 
     this.selectElement.addEventListener('change', async () => {
+      this.setStatus(null);
       this.setLoading(true);
       await this.assetManager.select(this.selectElement.value);
       this.setLoading(false);
@@ -71,11 +75,13 @@ export class AssetSelectionPanel {
   }
 
   async importFile(file) {
-    if (!file.name.toLowerCase().endsWith('.glb')) {
-      this.showError('Please choose a .glb file.');
+    const formatError = unsupportedFormatMessage(file.name);
+    if (formatError) {
+      this.showError(formatError);
       return;
     }
 
+    this.setStatus(null);
     const config = registerImportedAsset(file);
     const option = this.addOption(config);
     this.setLoading(true);
@@ -93,10 +99,16 @@ export class AssetSelectionPanel {
     this.importButton.disabled = isLoading;
   }
 
+  setStatus(message) {
+    this.statusElement.classList.remove('is-error');
+    this.statusElement.hidden = !message;
+    this.statusElement.textContent = message || '';
+  }
+
   showError(message) {
     if (this.assetManager.currentAsset) this.selectElement.value = this.assetManager.currentAsset.config.id;
-    this.messageElement.hidden = false;
-    this.messageElement.textContent = message;
-    this.animationCard.hidden = true;
+    this.statusElement.hidden = false;
+    this.statusElement.textContent = message;
+    this.statusElement.classList.add('is-error');
   }
 }

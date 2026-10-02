@@ -503,3 +503,25 @@ canvas { display: block; }
   #viewport { grid-row: 2; min-height: 420px; }
   .app-footer { min-height: 48px; gap: 0.25rem 1rem; padding: 0.5rem 1rem; }
 }
+
+.import-hint {
+  color: var(--subtle);
+  font-size: 0.62rem;
+  text-align: center;
+}
+
+.asset-status {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.asset-status.is-error {
+  border-color: #8a4b4b;
+  background: rgba(214, 102, 102, 0.1);
+  color: #f0b4b4;
+}

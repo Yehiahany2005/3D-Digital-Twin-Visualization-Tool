@@ -19,6 +19,7 @@ import { JointJogPanel } from './ui/JointJogPanel.js';
 import { AssetManager } from './scene/AssetManager.js';
 import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
 import { DigitalTwinViewManager } from './scene/DigitalTwinViewManager.js';
+import { fitEnvironment } from './scene/fitEnvironment.js';
 import './style.css';
 
 createIcons({ icons: { Activity, Box, Cpu, PlayCircle, SlidersHorizontal, TerminalSquare } });
@@ -55,7 +56,7 @@ const floor = new THREE.Mesh(
   new THREE.MeshStandardMaterial({ color: 0x777b7e, roughness: 0.82, metalness: 0.05 }),
 );
 floor.rotation.x = -Math.PI / 2;
-floor.position.y = -0.02;
+floor.position.y = -0.005;
 floor.receiveShadow = true;
 sceneManager.add(floor);
 
@@ -94,10 +95,13 @@ function handleAssetLoaded(asset) {
       modeElement: visualizationMode,
     });
   }
-  if (asset.config.id === 'Unitree_robot') {
-    console.info('G1 Digital Twin material processing active:', visualizationManager.isDigitalTwin);
-    console.info('G1 diagnostic animation playback:', 'No automatic animation started');
-  }
+  fitEnvironment({
+    model: asset.model,
+    scene: sceneManager.scene,
+    floor,
+    grid: visualizationManager.grid,
+    lightGroups: [lightingGroup, visualizationManager.digitalLights],
+  });
 
   destroyRobotPanels();
   setRobotOnlyVisibility(asset.config.robotController);
@@ -113,12 +117,12 @@ const assetManager = new AssetManager({
   scene: sceneManager.scene,
   cameraManager,
   controls,
-  floor,
   onAssetLoaded: handleAssetLoaded,
   onAssetError: (config, error) => {
     console.error(`Asset selection failed for ${config.name}:`, error);
-    assetSelectionPanel.showError('Unable to load asset.');
+    assetSelectionPanel.showError(`Unable to load ${config.name}: ${error.message || 'unknown error'}`);
   },
+  onStatus: (message) => assetSelectionPanel.setStatus(message),
 });
 
 const assetSelectionPanel = new AssetSelectionPanel({

@@ -1,51 +1,61 @@
+import { formatLabel } from '../loaders/ModelLoader.js';
+// ?url makes Vite copy each model into the production build and return its final URL.
+import robotUrl from './robot.glb?url';
+import forkliftUrl from './Forklift.glb?url';
+import depalletizerUrl from './Robotics_Depallatizer_IRB660_with_SafeMove_Zone.glb?url';
+import itemPickerUrl from './Robotics_Item_Picker_IRB1300.glb?url';
+import unitreeUrl from './Unitree_G1_Brooklyn_Uprock.glb?url';
+import miraUrl from './sharable-bot.glb?url';
+import roboticArmUrl from './robotic_arm.glb?url';
+
 export const ASSET_REGISTRY = [
   {
     id: 'abb_irb6760',
     name: 'ABB IRB 6760',
     type: 'Industrial Robot',
-    model: '/src/assets/robot.glb',
+    model: robotUrl,
     robotController: true,
   },
   {
     id: 'forklift',
     name: 'Forklift',
     type: 'Industrial Vehicle',
-    model: '/src/assets/Forklift.glb',
+    model: forkliftUrl,
     robotController: false,
   },
   {
     id: 'abb_depalettizer',
     name: 'ABB Depalletizer',
     type: 'Industrial Machine',
-    model: '/src/assets/Robotics_Depallatizer_IRB660_with_SafeMove_Zone.glb',
+    model: depalletizerUrl,
     robotController: false,
   },
   {
     id: 'abb_robotpicker',
     name: 'ABB Robot Picker',
     type: 'Industrial Machine',
-    model: '/src/assets/Robotics_Item_Picker_IRB1300.glb',
+    model: itemPickerUrl,
     robotController: false,
   },
     {
     id: 'Unitree_robot',
     name: 'Unitree Humanoid Robot',
     type: 'Robot',
-    model: '/src/assets/Unitree_G1_Brooklyn_Uprock.glb',
+    model: unitreeUrl,
     robotController: false,
   },
     {
     id: 'Mira_robot',
     name: 'Mira Robot',
     type: 'Robot',
-    model: '/src/assets/sharable-bot.glb',
+    model: miraUrl,
     robotController: false,
   },
       {
     id: 'RoboticARM',
     name: 'Robotic Arm',
     type: 'Robot Arm',
-    model: '/src/assets/robotic_arm.glb',
+    model: roboticArmUrl,
     robotController: false,
   },
 ];
@@ -60,9 +70,9 @@ export function registerImportedAsset(file) {
   importCount += 1;
   const config = {
     id: `imported_${importCount}`,
-    name: file.name.replace(/\.glb$/i, ''),
-    type: 'Imported Model',
-    model: URL.createObjectURL(file),
+    name: file.name.replace(/\.[^.]+$/, ''),
+    type: `Imported ${formatLabel(file.name)} Model`,
+    file,
     robotController: false,
     imported: true,
   };
@@ -72,7 +82,5 @@ export function registerImportedAsset(file) {
 
 export function unregisterAsset(assetId) {
   const index = ASSET_REGISTRY.findIndex((asset) => asset.id === assetId);
-  if (index === -1) return;
-  const [config] = ASSET_REGISTRY.splice(index, 1);
-  if (config.imported) URL.revokeObjectURL(config.model);
+  if (index !== -1) ASSET_REGISTRY.splice(index, 1);
 }

@@ -1,38 +1,29 @@
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 import { AnimationController } from './AnimationController.js';
 import { getAssetConfig } from '../assets/AssetRegistry.js';
+import { ModelLoader, UNIT_SCALES } from '../loaders/ModelLoader.js';
 
-const isUnitreeAsset = (config) => config.id === 'Unitree_robot' || config.name.toLowerCase().includes('unitree');
+const UP_AXIS_ROTATIONS = {
+  y: new THREE.Euler(0, 0, 0),
+  z: new THREE.Euler(-Math.PI / 2, 0, 0),
+};
 
-function formatVector(vector) {
-  return { x: Number(vector.x.toFixed(4)), y: Number(vector.y.toFixed(4)), z: Number(vector.z.toFixed(4)) };
-}
-
-function formatEuler(euler) {
-  return { x: Number(euler.x.toFixed(4)), y: Number(euler.y.toFixed(4)), z: Number(euler.z.toFixed(4)) };
-}
-
-function modelState(model) {
-  return {
-    position: formatVector(model.position),
-    rotation: formatEuler(model.rotation),
-    scale: formatVector(model.scale),
-    visible: model.visible,
-    parent: model.parent?.type || null,
-    sceneContainsModel: model.parent !== null,
-  };
+async function readSource(config) {
+  if (config.file) return { buffer: await config.file.arrayBuffer(), fileName: config.file.name };
+  const response = await fetch(config.model);
+  if (!response.ok) throw new Error(`Could not download ${config.model} (HTTP ${response.status}).`);
+  return { buffer: await response.arrayBuffer(), fileName: config.model };
 }
 
 export class AssetManager {
-  constructor({ scene, cameraManager, controls, floor, onAssetLoaded, onAssetError }) {
+  constructor({ scene, cameraManager, controls, onAssetLoaded, onAssetError, onStatus }) {
     this.scene = scene;
     this.cameraManager = cameraManager;
     this.controls = controls;
-    this.floor = floor;
     this.onAssetLoaded = onAssetLoaded;
     this.onAssetError = onAssetError;
-    this.loader = new GLTFLoader();
+    this.onStatus = onStatus;
+    this.loader = new ModelLoader();
     this.cache = new Map();
     this.currentAsset = null;
     this.isLoading = false;
@@ -54,40 +45,70 @@ export class AssetManager {
       this.onAssetError?.(config, error);
     } finally {
       this.isLoading = false;
+      this.onStatus?.(null);
     }
   }
 
-  load(config) {
-    return new Promise((resolve, reject) => {
-      this.loader.load(config.model, (gltf) => {
-        const model = gltf.scene;
-        const unitree = isUnitreeAsset(config);
-        if (unitree) this.logUnitreeLoadStart(config, gltf, model);
-        const beforeBounds = unitree ? this.boundsReport(model) : null;
-        const bounds = new THREE.Box3().setFromObject(model);
-        model.position.sub(bounds.getCenter(new THREE.Vector3()));
-        model.traverse((object) => {
-          if (!object.isMesh) return;
-          object.castShadow = true;
-          object.receiveShadow = true;
-        });
+  async load(config) {
+    this.onStatus?.(`Reading ${config.name}…`);
+    const { buffer, fileName } = await readSource(config);
+    const parsed = await this.loader.parse(buffer, fileName, { onStatus: this.onStatus });
+    this.onStatus?.('Preparing model…');
 
-        const asset = {
-          config,
-          gltf,
-          model,
-          bounds,
-          animations: gltf.animations,
-          animationController: new AnimationController(model, gltf.animations),
-        };
-        if (unitree) this.logUnitreeLoadComplete(asset, beforeBounds);
-        console.info(`Asset loaded successfully: ${config.name}`);
-        console.info(`Animations: ${gltf.animations.length}`);
-        gltf.animations.forEach((clip, index) => console.info(`Animation ${index + 1}: ${clip.name || '(unnamed)'}`));
-        this.cache.set(config.id, asset);
-        resolve(asset);
-      }, undefined, reject);
+    // Hierarchy: root (whole-object motion + unit scale) → orientation (up axis) → content (the file's scene).
+    const content = parsed.scene;
+    const orientation = new THREE.Group();
+    orientation.name = 'Orientation';
+    orientation.add(content);
+    const root = new THREE.Group();
+    root.name = 'AssetRoot';
+    root.add(orientation);
+
+    content.traverse((object) => {
+      if (!object.isMesh) return;
+      object.castShadow = true;
+      object.receiveShadow = true;
     });
+
+    const asset = {
+      config,
+      model: root,
+      orientation,
+      content,
+      animations: parsed.animations,
+      animationController: new AnimationController(content, parsed.animations),
+      units: parsed.units,
+      unitsGuessed: parsed.unitsGuessed,
+      upAxis: parsed.upAxis,
+    };
+    this.applyPlacement(asset);
+
+    console.info(`Asset loaded: ${config.name} (units: ${asset.units}${asset.unitsGuessed ? ', guessed' : ''}, up: ${asset.upAxis})`);
+    console.info(`Animations: ${parsed.animations.length}`);
+    this.cache.set(config.id, asset);
+    return asset;
+  }
+
+  // Applies unit scale and up axis, then rests the model on the floor (y = 0) centred on the origin.
+  applyPlacement(asset) {
+    const { model: root, orientation } = asset;
+    const saved = { position: root.position.clone(), quaternion: root.quaternion.clone() };
+
+    root.position.set(0, 0, 0);
+    root.quaternion.identity();
+    root.scale.setScalar(UNIT_SCALES[asset.units] ?? 1);
+    orientation.rotation.copy(UP_AXIS_ROTATIONS[asset.upAxis] || UP_AXIS_ROTATIONS.y);
+    orientation.position.set(0, 0, 0);
+    root.updateMatrixWorld(true);
+
+    const bounds = new THREE.Box3().setFromObject(orientation);
+    const center = bounds.getCenter(new THREE.Vector3());
+    const offset = new THREE.Vector3(center.x, bounds.min.y, center.z).divide(root.scale);
+    orientation.position.sub(offset);
+
+    root.position.copy(saved.position);
+    root.quaternion.copy(saved.quaternion);
+    root.updateMatrixWorld(true);
   }
 
   replaceCurrent(asset) {
@@ -97,26 +118,11 @@ export class AssetManager {
     }
 
     this.scene.add(asset.model);
-    const bounds = new THREE.Box3().setFromObject(asset.model);
-    if (this.floor) this.floor.position.y = bounds.min.y - 0.01;
     this.cameraManager.frameObject(asset.model, this.controls);
-    if (isUnitreeAsset(asset.config)) {
-      console.info('G1 added to scene', asset.model);
-      console.info('G1 still in scene:', asset.model.parent !== null);
-      console.info('G1 camera framing', {
-        cameraPosition: formatVector(this.cameraManager.camera.position),
-        cameraNear: this.cameraManager.camera.near,
-        cameraFar: this.cameraManager.camera.far,
-        controlsTarget: formatVector(this.controls.target),
-        bounds: this.boundsReport(asset.model),
-      });
-      asset.debugState = modelState(asset.model);
-    }
   }
 
   update(deltaTime) {
     this.currentAsset?.animationController.update(deltaTime);
-    if (this.currentAsset && isUnitreeAsset(this.currentAsset.config)) this.updateUnitreeDiagnostics();
   }
 
   get currentAnimations() {
@@ -127,96 +133,5 @@ export class AssetManager {
     this.currentAsset?.animationController.stop();
     this.cache.forEach((asset) => asset.animationController.dispose());
     this.cache.clear();
-  }
-
-  boundsReport(model) {
-    const bounds = new THREE.Box3().setFromObject(model);
-    const size = bounds.getSize(new THREE.Vector3());
-    const sphere = bounds.getBoundingSphere(new THREE.Sphere());
-    return {
-      min: formatVector(bounds.min),
-      max: formatVector(bounds.max),
-      width: Number(size.x.toFixed(4)),
-      height: Number(size.y.toFixed(4)),
-      depth: Number(size.z.toFixed(4)),
-      sphereCenter: formatVector(sphere.center),
-      sphereRadius: Number(sphere.radius.toFixed(4)),
-    };
-  }
-
-  logUnitreeLoadStart(config, gltf, model) {
-    console.groupCollapsed('UNITREE G1 LOAD');
-    console.info('Asset ID:', config.id);
-    console.info('GLB path:', config.model);
-    console.info('Loaded:', true);
-    console.info('gltf.scene:', gltf.scene);
-    console.info('Children:', model.children.length);
-    console.info('Meshes:', this.countMeshes(model));
-    console.info('Animations:', gltf.animations.length);
-    console.info('BoundingBox before generic setup:', this.boundsReport(model));
-    console.info('Model state before generic setup:', modelState(model));
-    console.groupEnd();
-  }
-
-  logUnitreeLoadComplete(asset, beforeBounds) {
-    console.groupCollapsed('UNITREE G1 AFTER GENERIC ASSET SETUP');
-    console.info('BoundingBox after generic setup:', this.boundsReport(asset.model));
-    console.info('Model state after generic setup:', modelState(asset.model));
-    console.info('Bounds before generic setup:', beforeBounds);
-    console.info('Animation mixer created:', asset.animationController.mixer !== null);
-    console.info('Animation automatically played:', false);
-    this.inspectMaterials(asset.model);
-    console.groupEnd();
-  }
-
-  updateUnitreeDiagnostics() {
-    const asset = this.currentAsset;
-    const state = modelState(asset.model);
-    const previous = asset.debugState;
-    if (!previous || JSON.stringify(previous) !== JSON.stringify(state)) {
-      console.info('G1 render state changed', {
-        previous,
-        current: state,
-        'G1 still in scene': asset.model.parent !== null,
-        sceneContainsModel: this.scene.children.includes(asset.model),
-      });
-      asset.debugState = state;
-    }
-    asset.debugFrameCount = (asset.debugFrameCount || 0) + 1;
-    if (asset.debugFrameCount % 120 === 0) {
-      console.info('G1 still in scene:', asset.model.parent !== null);
-      console.info('G1 periodic bounds:', this.boundsReport(asset.model));
-    }
-  }
-
-  countMeshes(model) {
-    let count = 0;
-    model.traverse((object) => {
-      if (object.isMesh) count += 1;
-    });
-    return count;
-  }
-
-  inspectMaterials(model) {
-    model.traverse((object) => {
-      if (!object.isMesh) return;
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-      materials.forEach((material, index) => {
-        console.info('G1 mesh material', {
-          mesh: object.name || '(unnamed)',
-          materialIndex: index,
-          material: material?.name || '(unnamed)',
-          type: material?.type,
-          visible: object.visible,
-          materialVisible: material?.visible,
-          opacity: material?.opacity,
-          transparent: material?.transparent,
-          depthWrite: material?.depthWrite,
-          layers: object.layers.mask,
-          frustumCulled: object.frustumCulled,
-          renderOrder: object.renderOrder,
-        });
-      });
-    });
   }
 }
