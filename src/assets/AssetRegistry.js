@@ -53,3 +53,26 @@ export const ASSET_REGISTRY = [
 export function getAssetConfig(assetId) {
   return ASSET_REGISTRY.find((asset) => asset.id === assetId);
 }
+
+let importCount = 0;
+
+export function registerImportedAsset(file) {
+  importCount += 1;
+  const config = {
+    id: `imported_${importCount}`,
+    name: file.name.replace(/\.glb$/i, ''),
+    type: 'Imported Model',
+    model: URL.createObjectURL(file),
+    robotController: false,
+    imported: true,
+  };
+  ASSET_REGISTRY.push(config);
+  return config;
+}
+
+export function unregisterAsset(assetId) {
+  const index = ASSET_REGISTRY.findIndex((asset) => asset.id === assetId);
+  if (index === -1) return;
+  const [config] = ASSET_REGISTRY.splice(index, 1);
+  if (config.imported) URL.revokeObjectURL(config.model);
+}

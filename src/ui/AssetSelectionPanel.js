@@ -1,4 +1,6 @@
-import { ASSET_REGISTRY } from '../assets/AssetRegistry.js';
+import { ASSET_REGISTRY, registerImportedAsset, unregisterAsset } from '../assets/AssetRegistry.js';
+
+const NO_ANIMATIONS_MESSAGE = 'No embedded animations detected.';
 
 export class AssetSelectionPanel {
   constructor({ assetManager, selectElement, infoTitle, nameElement, typeElement, animationCountElement, animationCard, animationSelect, playButton, pauseButton, restartButton, messageElement }) {
@@ -15,12 +17,16 @@ export class AssetSelectionPanel {
     this.pauseButton = pauseButton;
     this.restartButton = restartButton;
     this.messageElement = messageElement;
+    this.importInput = document.querySelector('[data-asset-import]');
+    this.importButton = document.querySelector('[data-asset-import-button]');
 
-    ASSET_REGISTRY.forEach((asset) => {
-      const option = document.createElement('option');
-      option.value = asset.id;
-      option.textContent = asset.name;
-      this.selectElement.appendChild(option);
+    ASSET_REGISTRY.forEach((asset) => this.addOption(asset));
+
+    this.importButton.addEventListener('click', () => this.importInput.click());
+    this.importInput.addEventListener('change', () => {
+      const [file] = this.importInput.files;
+      this.importInput.value = '';
+      if (file) this.importFile(file);
     });
 
     this.selectElement.addEventListener('change', async () => {
@@ -42,6 +48,7 @@ export class AssetSelectionPanel {
     this.nameElement.textContent = config.name;
     this.typeElement.textContent = config.type;
     this.animationCountElement.textContent = String(animations.length);
+    this.messageElement.textContent = NO_ANIMATIONS_MESSAGE;
     this.messageElement.hidden = animations.length > 0;
     this.animationCard.hidden = animations.length === 0;
 
@@ -55,8 +62,35 @@ export class AssetSelectionPanel {
     });
   }
 
+  addOption(config) {
+    const option = document.createElement('option');
+    option.value = config.id;
+    option.textContent = config.name;
+    this.selectElement.appendChild(option);
+    return option;
+  }
+
+  async importFile(file) {
+    if (!file.name.toLowerCase().endsWith('.glb')) {
+      this.showError('Please choose a .glb file.');
+      return;
+    }
+
+    const config = registerImportedAsset(file);
+    const option = this.addOption(config);
+    this.setLoading(true);
+    await this.assetManager.select(config.id);
+    this.setLoading(false);
+
+    if (this.assetManager.currentAsset?.config.id !== config.id) {
+      option.remove();
+      unregisterAsset(config.id);
+    }
+  }
+
   setLoading(isLoading) {
     this.selectElement.disabled = isLoading;
+    this.importButton.disabled = isLoading;
   }
 
   showError(message) {
