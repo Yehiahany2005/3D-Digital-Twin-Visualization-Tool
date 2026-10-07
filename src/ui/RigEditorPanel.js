@@ -31,13 +31,17 @@ function isOriginalDescendant(path, ancestorPath) {
 }
 
 export class RigEditorPanel {
-  constructor({ card, picker, outline, gizmo }) {
+  constructor({ card, picker, outline, highlight, gizmo }) {
     this.card = card;
     this.picker = picker;
     this.outline = outline;
+    this.highlight = highlight;
     this.gizmo = gizmo;
     this.asset = null;
+    this.meshes = [];
     this.selection = [];
+    // The groups containing the last clicked part, smallest first (see groupLevels).
+    this.levels = [];
     this.pickMode = null;
     this.draft = null;
     this.query = (selector) => card.querySelector(selector);
@@ -62,7 +66,6 @@ export class RigEditorPanel {
     });
 
     this.query('[data-select-parts]').addEventListener('click', () => this.setPickMode(this.pickMode === 'parts' ? null : 'parts'));
-    this.query('[data-select-parent]').addEventListener('click', () => this.selectParents());
     this.query('[data-clear-selection]').addEventListener('click', () => this.setSelection([]));
     this.query('[data-pick-surface]').addEventListener('click', () => this.setPickMode('surface'));
     this.query('[data-pick-target]').addEventListener('click', () => this.setPickMode('target'));
@@ -95,7 +98,6 @@ export class RigEditorPanel {
       this.writeForm();
     });
     this.field('parent').addEventListener('change', () => { this.draft.parent = this.field('parent').value; });
-    this.field('linkJoint').addEventListener('change', () => { this.draft.linkJoint = this.field('linkJoint').value; });
     this.field('name').addEventListener('input', () => { this.draft.name = this.field('name').value; });
     ['min', 'max', 'speed'].forEach((name) => {
       this.field(name).addEventListener('change', () => { this.draft[name] = Number(this.field(name).value); });
@@ -124,8 +126,14 @@ export class RigEditorPanel {
       const size = new THREE.Box3().setFromObject(asset.model).getSize(new THREE.Vector3());
       return Math.max(size.x, size.y, size.z, 0.01);
     })();
+    this.meshes = [];
+    asset.rig.content.traverse((object) => {
+      if (object.isMesh && object.userData.partPath !== undefined) this.meshes.push(object);
+    });
     this.selection = [];
+    this.levels = [];
     this.resetForm();
+    this.refreshSelection();
     this.renderJointList();
     this.picker.target = asset.model;
     if (this.pickMode) this.setPickMode(this.pickMode);
@@ -161,28 +169,55 @@ export class RigEditorPanel {
     else if (this.pickMode === 'target') this.pickTarget(hit);
   }
 
-  // Meshes are often unnamed children of a named part, so climb to the first named object.
+  // Meshes are often unnamed children of a named part, so climb to the first named object,
+  // but never as far as a group that holds the whole model.
   selectableFor(object) {
     let current = object;
-    while (!current.name && originalParent(current) && originalParent(current) !== this.rig.content) {
-      current = originalParent(current);
+    while (!current.name) {
+      const parent = originalParent(current);
+      if (!parent || parent === this.rig.content || this.meshesUnder(parent).length >= this.meshes.length) break;
+      current = parent;
     }
     return current;
   }
 
   pickPart(object, additive) {
     const part = this.selectableFor(object);
+    const removing = additive && this.selection.includes(part);
+    if (!removing) this.levels = this.groupLevels(part);
     if (!additive) return this.setSelection([part]);
-    const selected = this.selection.includes(part);
-    return this.setSelection(selected ? this.selection.filter((item) => item !== part) : [...this.selection, part]);
+    return this.setSelection(removing ? this.selection.filter((item) => item !== part) : [...this.selection, part]);
   }
 
-  selectParents() {
-    const parents = this.selection.map((object) => {
-      const parent = originalParent(object);
-      return parent && parent !== this.rig.content ? parent : object;
-    });
-    this.setSelection(parents);
+  // Meshes inside an object in the file's original hierarchy. Joints re-parent parts, so
+  // walking the live scene graph would miss parts that already belong to a joint.
+  meshesUnder(object) {
+    const path = object.userData.partPath;
+    if (path === undefined) return [];
+    return this.meshes.filter((mesh) => mesh.userData.partPath === path || isOriginalDescendant(mesh.userData.partPath, path));
+  }
+
+  // The part plus the groups it sits in, smallest first. A group holding exactly the same
+  // meshes as the level below adds nothing, so only the best-named of those is kept, and
+  // the climb stops before the group that holds the whole model.
+  groupLevels(part) {
+    const levels = [{ object: part, meshes: this.meshesUnder(part) }];
+    let current = originalParent(part);
+    while (current && current !== this.rig.content && current.userData.partPath !== undefined) {
+      const meshes = this.meshesUnder(current);
+      if (meshes.length >= this.meshes.length) break;
+      const last = levels[levels.length - 1];
+      if (meshes.length > last.meshes.length) levels.push({ object: current, meshes });
+      else if (levels.length > 1 && (current.name || !last.object.name)) levels[levels.length - 1] = { object: current, meshes };
+      current = originalParent(current);
+    }
+    return levels;
+  }
+
+  // Swaps whichever level is selected for the chosen one, keeping any other selected parts.
+  selectLevel(level) {
+    const levelObjects = this.levels.map((item) => item.object);
+    this.setSelection([...this.selection.filter((object) => !levelObjects.includes(object)), level.object]);
   }
 
   setSelection(objects) {
@@ -209,8 +244,55 @@ export class RigEditorPanel {
       item.title = `Path ${object.userData.partPath}`;
       return item;
     }));
-    if (this.card.open) this.outline.set(this.selection);
-    else this.outline.clear();
+    if (this.card.open) {
+      this.outline.set(this.selection);
+      this.highlight.setSelection(this.selection.flatMap((object) => this.meshesUnder(object)));
+    } else {
+      this.outline.clear();
+      this.highlight.clear();
+    }
+    this.renderLevels();
+  }
+
+  renderLevels() {
+    if (!this.rig) this.levels = [];
+    else if (!this.levels.some((level) => this.selection.includes(level.object))) {
+      const last = this.selection[this.selection.length - 1];
+      this.levels = last ? this.groupLevels(last) : [];
+    }
+    this.highlight.setPreview([]);
+    const single = this.levels.length === 1;
+    this.query('[data-part-levels]').hidden = !this.levels.length;
+    this.query('[data-part-levels-hint]').textContent = single
+      ? "The last part you clicked isn't inside any group other than the whole model."
+      : 'Groups that contain the last part you clicked, largest first. Hover to highlight what each one holds; click to select it.';
+    const list = this.query('[data-part-level-list]');
+    list.hidden = single;
+    list.replaceChildren(...[...this.levels].reverse().map((level, depth) => {
+      const selected = this.selection.includes(level.object);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'part-level';
+      button.classList.toggle('is-active', selected);
+      button.setAttribute('aria-pressed', String(selected));
+      button.style.setProperty('--depth', String(Math.min(depth, 6)));
+      const name = document.createElement('span');
+      name.textContent = level.object.name || (level.meshes.length > 1 ? 'Unnamed group' : 'Unnamed part');
+      const count = document.createElement('small');
+      count.textContent = `${level.meshes.length} piece${level.meshes.length === 1 ? '' : 's'}`;
+      button.append(name, count);
+      button.title = name.textContent;
+      const preview = () => this.highlight.setPreview(level.meshes);
+      const endPreview = () => this.highlight.setPreview([]);
+      button.addEventListener('pointerenter', preview);
+      button.addEventListener('focus', preview);
+      button.addEventListener('pointerleave', endPreview);
+      button.addEventListener('blur', endPreview);
+      button.addEventListener('click', () => this.selectLevel(level));
+      const item = document.createElement('li');
+      item.appendChild(button);
+      return item;
+    }));
   }
 
   // Centre of the selected parts' bounding box, in model coordinates at the rest pose.
@@ -249,13 +331,17 @@ export class RigEditorPanel {
 
   pickTarget(hit) {
     const mesh = hit.object;
-    const local = mesh.worldToLocal(hit.point.clone());
-    this.draft.target = this.rig.withRestPose(() => this.rig.content.worldToLocal(mesh.localToWorld(local)));
     // The followed joint is whichever joint carries the clicked part.
     let current = mesh;
     while (current && current !== this.rig.content && current.userData.rigJointId === undefined) current = current.parent;
     const owner = current?.userData.rigJointId;
-    if (owner && owner !== this.draft.editingId) this.draft.linkJoint = owner;
+    const ownPart = owner === this.draft.editingId
+      || this.selection.some((object) => object === mesh || isOriginalDescendant(mesh.userData.partPath, object.userData.partPath));
+    if (!owner) return this.showMessage("That part doesn't move, so there is nothing to follow. Click a point on a part that has a joint.", true);
+    if (ownPart) return this.showMessage("That point is on this joint's own parts. Click a point on the part it should follow.", true);
+    const local = mesh.worldToLocal(hit.point.clone());
+    this.draft.target = this.rig.withRestPose(() => this.rig.content.worldToLocal(mesh.localToWorld(local)));
+    this.draft.linkJoint = owner;
     if (this.draft.type === 'stretch') {
       const anchor = this.stretchAnchor();
       const direction = this.draft.target.clone().sub(anchor);
@@ -263,7 +349,7 @@ export class RigEditorPanel {
     }
     this.setPickMode('parts');
     this.writeForm();
-    this.showMessage('Follow point set.');
+    return this.showMessage(`Follow point set on "${this.rig.jointsById.get(owner).name}".`);
   }
 
   // ---- Draft & form ---------------------------------------------------------
@@ -371,16 +457,15 @@ export class RigEditorPanel {
     this.field('type').value = draft.type;
     this.jointOptions(this.field('parent'), { includeBase: true, exclude: this.descendantsOf(draft.editingId) });
     this.field('parent').value = draft.parent;
-    this.jointOptions(this.field('linkJoint'), { includeBase: false, exclude: new Set([draft.editingId]) });
-    if (!draft.linkJoint && this.rig.joints.length) draft.linkJoint = this.rig.joints.find((joint) => joint.id !== draft.editingId)?.id || '';
-    this.field('linkJoint').value = draft.linkJoint;
 
     const linked = draft.type === 'aim' || draft.type === 'stretch';
     this.query('[data-link-fields]').hidden = !linked;
     this.query('[data-limit-fields]').hidden = linked;
-    this.query('[data-target-status]').textContent = draft.target
-      ? 'Follow point set. Pick again to change it.'
-      : 'Click the point it should follow, e.g. the pin on the other part.';
+    this.query('[data-speed-field]').hidden = linked;
+    const followed = this.rig.jointsById.get(draft.linkJoint);
+    this.query('[data-target-status]').textContent = draft.target && followed
+      ? `Follows a point on "${followed.name}". Pick again to change it.`
+      : 'Click the point it should follow, e.g. the pin on the other part. The joint it belongs to is found for you.';
     this.card.querySelectorAll('[data-unit]').forEach((element) => { element.textContent = motion === 'prismatic' ? 'mm' : '°'; });
     this.query('[data-unit-speed]').textContent = motion === 'prismatic' ? 'mm/s' : '°/s';
     this.field('min').value = String(draft.min);
@@ -462,8 +547,7 @@ export class RigEditorPanel {
     if (!this.selection.length) return 'Select the parts that move first.';
     if (draft.axis.lengthSq() === 0) return 'The axis cannot be zero.';
     if (draft.type === 'aim' || draft.type === 'stretch') {
-      if (!draft.linkJoint) return 'Choose which joint this one follows.';
-      if (!draft.target) return 'Pick the follow point on the model.';
+      if (!draft.target || !this.rig.jointsById.has(draft.linkJoint)) return 'Pick the follow point on the model.';
     } else if (!(draft.speed > 0)) return 'Speed must be greater than zero.';
     return null;
   }
@@ -634,6 +718,7 @@ export class RigEditorPanel {
   update() {
     if (!this.card.open || !this.rig) return;
     this.outline.update();
+    this.highlight.update();
     const { draft } = this;
     if (!this.selection.length && !draft.editingId) {
       this.gizmo.hide();

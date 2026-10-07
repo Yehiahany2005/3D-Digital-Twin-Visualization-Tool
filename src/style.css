@@ -750,13 +750,112 @@ canvas { display: block; }
   font-size: 0.64rem;
 }
 
-.limit-fields {
+.range-fields {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.35rem;
 }
 
-.limit-fields[hidden] { display: none; }
+.limit-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.range-fields[hidden],
+.speed-field[hidden] { display: none; }
+
+.editor-advanced { border-top: 1px solid var(--border-soft); }
+
+.sidebar-card .editor-advanced summary {
+  justify-content: flex-start;
+  gap: 0.45rem;
+  min-height: 2rem;
+  padding: 0;
+  border-bottom: 0;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.editor-advanced summary::before {
+  width: 5px;
+  height: 5px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  content: "";
+  transform: rotate(-45deg);
+  transition: transform 160ms ease;
+}
+
+.editor-advanced[open] summary::before { transform: rotate(45deg); }
+
+.editor-advanced-content {
+  display: grid;
+  gap: 0.45rem;
+  padding-bottom: 0.35rem;
+}
+
+.part-levels {
+  display: grid;
+  gap: 0.35rem;
+  padding-top: 0.25rem;
+}
+
+.part-levels[hidden],
+.part-level-list[hidden] { display: none; }
+
+.part-level-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.part-level {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: calc(100% - var(--depth, 0) * 0.6rem);
+  min-height: 1.85rem;
+  margin-left: calc(var(--depth, 0) * 0.6rem);
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #50545a;
+  border-radius: 3px;
+  background: #34373b;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.part-level span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.part-level small {
+  flex: 0 0 auto;
+  color: var(--subtle);
+  font-weight: 500;
+}
+
+.part-level:hover,
+.part-level:focus-visible {
+  border-color: #f2b84b;
+  outline: none;
+}
+
+.part-level.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.part-level.is-active small { color: var(--accent); }
 
 .editor-message {
   margin: 0;

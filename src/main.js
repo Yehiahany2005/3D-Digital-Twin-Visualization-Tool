@@ -19,7 +19,7 @@ import { MotionPlayer } from './motion/MotionPlayer.js';
 import { JointControls } from './ui/JointControls.js';
 import { CommandsPanel } from './ui/CommandsPanel.js';
 import { RigEditorPanel } from './ui/RigEditorPanel.js';
-import { JointGizmo, SelectionOutline, ViewportPicker } from './scene/RigHelpers.js';
+import { JointGizmo, PartHighlight, SelectionOutline, ViewportPicker } from './scene/RigHelpers.js';
 import { loadSavedRig } from './motion/RigStore.js';
 import { AssetManager } from './scene/AssetManager.js';
 import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
@@ -136,6 +136,7 @@ const rigEditor = new RigEditorPanel({
   card: document.querySelector('[data-rig-editor]'),
   picker: new ViewportPicker({ domElement: rendererManager.renderer.domElement, camera: cameraManager.camera }),
   outline: new SelectionOutline(sceneManager.scene),
+  highlight: new PartHighlight(sceneManager.scene),
   gizmo: new JointGizmo(sceneManager.scene),
 });
 

@@ -78,6 +78,66 @@ export class SelectionOutline {
   }
 }
 
+// Tints meshes so it is clear exactly what a selection or group contains: the
+// selection in the accent colour, a previewed group in amber drawn through the model.
+export class PartHighlight {
+  constructor(scene) {
+    this.scene = scene;
+    this.layers = {
+      selection: { material: tintMaterial(ACCENT, 0.3, true), overlays: [] },
+      preview: { material: tintMaterial(TARGET_COLOR, 0.5, false), overlays: [] },
+    };
+  }
+
+  setSelection(meshes) {
+    this.fill(this.layers.selection, meshes);
+  }
+
+  setPreview(meshes) {
+    this.fill(this.layers.preview, meshes);
+  }
+
+  clear() {
+    this.setSelection([]);
+    this.setPreview([]);
+  }
+
+  fill(layer, meshes) {
+    layer.overlays.forEach(({ overlay }) => overlay.removeFromParent());
+    // Skinned and instanced meshes would draw in the wrong place with a plain overlay.
+    layer.overlays = meshes.filter((mesh) => !mesh.isSkinnedMesh && !mesh.isInstancedMesh).map((mesh) => {
+      const overlay = new THREE.Mesh(mesh.geometry, layer.material);
+      overlay.matrixAutoUpdate = false;
+      overlay.renderOrder = layer === this.layers.preview ? 1000 : 998;
+      overlay.raycast = () => {};
+      this.scene.add(overlay);
+      return { overlay, mesh };
+    });
+    this.update();
+  }
+
+  update() {
+    Object.values(this.layers).forEach(({ overlays }) => overlays.forEach(({ overlay, mesh }) => {
+      overlay.matrix.copy(mesh.matrixWorld);
+      overlay.visible = mesh.visible;
+    }));
+  }
+}
+
+function tintMaterial(color, opacity, depthTest) {
+  return new THREE.MeshBasicMaterial({
+    color,
+    opacity,
+    depthTest,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+}
+
 function overlayMaterial(color) {
   return new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 });
 }
