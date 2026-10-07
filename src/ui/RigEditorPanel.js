@@ -18,7 +18,6 @@ const DIRECTION_BUTTONS = {
       { label: 'Swing', title: 'Swing up and down as you see it now, like a clock hand', direction: 'view' },
       { label: 'Tip', title: 'Lean toward and away from you', direction: 'right' },
     ],
-    hint: 'Turn spins it like a swivel chair. Swing moves it up and down like a clock hand, as you see it now. Tip leans it toward you.',
   },
   prismatic: {
     buttons: [
@@ -26,7 +25,6 @@ const DIRECTION_BUTTONS = {
       { label: 'Sideways', title: 'Slide left and right as you see it now', direction: 'right' },
       { label: 'In/out', title: 'Slide toward and away from you', direction: 'view' },
     ],
-    hint: 'Directions are as you see the model now.',
   },
 };
 
@@ -491,7 +489,6 @@ export class RigEditorPanel {
       button.textContent = label;
       button.title = title;
     });
-    this.query('[data-direction-hint]').textContent = directions.hint;
     this.query('[data-link-fields]').hidden = !linked;
     this.query('[data-limit-fields]').hidden = linked;
     this.query('[data-speed-field]').hidden = linked;
