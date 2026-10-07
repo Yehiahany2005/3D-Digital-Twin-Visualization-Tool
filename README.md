@@ -25,3 +25,16 @@ The current implementation is a **demo/prototype** and focuses specifically on t
 
 ---
 
+## Joints and animations
+
+Any model, including imported STEP/IGES files, can be made movable and animated in the browser:
+
+1. **Joint Setup**: pick the parts that move and define how they rotate or slide.
+2. **Animation Setup**: jog the joints into position and save poses, then chain poses into
+   sequences with move times and waits. Sequences play and loop in the app.
+3. **Export GLB with animations**: every sequence becomes a real animation clip inside a `.glb`
+   file that plays in Blender, Unity, Unreal and web viewers.
+
+Joints, poses and sequences are saved in the browser and in the `.rig.json` file
+(Joint Setup → Export), which can be loaded again onto the original model. Animated
+exports are always GLB: STEP and other CAD formats have no way to store animation.

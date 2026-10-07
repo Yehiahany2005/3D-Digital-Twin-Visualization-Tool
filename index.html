@@ -194,6 +194,58 @@
             </div>
           </details>
 
+          <details class="sidebar-card" data-animation-editor>
+            <summary><span class="card-title"><i data-lucide="clapperboard" aria-hidden="true"></i>Animation Setup</span><span class="summary-chevron" aria-hidden="true"></span></summary>
+            <div class="card-content rig-editor-content">
+              <section class="editor-section">
+                <div class="editor-section-head">
+                  <span class="editor-section-title">Poses</span>
+                  <span class="editor-count" data-pose-count></span>
+                </div>
+                <p class="editor-hint">Move the joints in the Joints panel, then save where they are as a pose.</p>
+                <div class="inline-form">
+                  <input type="text" data-pose-name placeholder="Pose name" aria-label="New pose name" autocomplete="off" />
+                  <button type="button" class="primary-button" data-save-pose>Save pose</button>
+                </div>
+                <ul class="motion-list" data-pose-list></ul>
+              </section>
+
+              <section class="editor-section">
+                <div class="editor-section-head"><span class="editor-section-title">Sequences</span></div>
+                <div class="inline-form">
+                  <select data-sequence-select aria-label="Sequence to edit"></select>
+                  <button type="button" data-new-sequence>New</button>
+                </div>
+                <div class="sequence-editor" data-sequence-editor>
+                  <label class="editor-field">Name<input type="text" data-sequence-name data-focus-key="sequence-name" autocomplete="off" /></label>
+                  <label class="checkbox-field"><input type="checkbox" data-sequence-loop /> Loop: start again when it ends</label>
+                  <span class="editor-subtitle">Steps</span>
+                  <ol class="step-list" data-step-list></ol>
+                  <div class="button-row">
+                    <button type="button" data-add-move>+ Move to pose</button>
+                    <button type="button" data-add-wait>+ Wait</button>
+                  </div>
+                  <small class="editor-hint" data-sequence-total></small>
+                  <div class="button-row">
+                    <button type="button" class="primary-button" data-play-sequence>Play</button>
+                    <button type="button" data-stop-sequence>Stop</button>
+                    <button type="button" data-delete-sequence>Delete</button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="editor-section">
+                <div class="editor-section-head"><span class="editor-section-title">Animated model</span></div>
+                <div class="button-row">
+                  <button type="button" data-export-glb>Export GLB with animations</button>
+                </div>
+                <small class="editor-hint">Each sequence becomes an animation clip in the .glb, which plays in Blender, Unity, Unreal and web viewers. Clips start where the sequence ends, so they loop smoothly.</small>
+                <small class="editor-hint" data-animation-save-state>Poses and sequences are saved in this browser and in the rig file (Joint Setup → Export).</small>
+              </section>
+              <p class="editor-message" data-animation-message role="status" hidden></p>
+            </div>
+          </details>
+
           <details class="sidebar-card asset-animation-card" data-animation-card hidden>
             <summary><span class="card-title"><i data-lucide="play-circle" aria-hidden="true"></i>Asset Animations</span><span class="summary-chevron" aria-hidden="true"></span></summary>
             <div class="card-content animation-content">

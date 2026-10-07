@@ -43,10 +43,8 @@ const POSES = [
   pose('scan_right', 'Scan Right', [-35, 20, 5, 0, 60, 0]),
 ];
 
-const move = (poseId, duration) => {
-  const { name, values } = POSES.find((item) => item.id === poseId);
-  return { type: 'move', label: name, values, ...(duration ? { duration } : {}) };
-};
+// Steps refer to poses by id, so editing a pose in Animation Setup updates every sequence using it.
+const move = (poseId, duration) => ({ type: 'move', pose: poseId, ...(duration ? { duration } : {}) });
 const wait = (duration) => ({ type: 'wait', duration });
 
 // Calibration: from Home, nudge each axis +5° and −5° in turn, then return.
