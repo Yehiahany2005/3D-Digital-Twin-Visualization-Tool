@@ -1,5 +1,4 @@
-// Slider + jog-button rows for a set of rig joints. Used for the model's own
-// joints and for whole-object motion (the rig's base joints).
+// Slider + jog-button rows for a set of rig joints.
 
 function signed(value, digits) {
   const text = value.toFixed(digits);
@@ -9,13 +8,12 @@ function signed(value, digits) {
 
 export function formatJointValue(joint, value = joint.value) {
   if (joint.type === 'revolute') return `${signed(value, 1)}°`;
-  if (Math.abs(value) >= 1000 || joint.kind === 'base') return `${signed(value / 1000, 3)} m`;
+  if (Math.abs(value) >= 1000) return `${signed(value / 1000, 3)} m`;
   return `${signed(value, 1)} mm`;
 }
 
 function jogStep(joint) {
-  if (joint.type === 'revolute') return 5;
-  return joint.kind === 'base' ? 100 : 10;
+  return joint.type === 'revolute' ? 5 : 10;
 }
 
 export class JointControls {

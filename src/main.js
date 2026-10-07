@@ -125,11 +125,6 @@ const jointControls = new JointControls({
   emptyMessage: 'This model has no movable joints yet.',
   emptyAction: { label: 'Set up joints', onClick: () => rigEditor.open() },
 });
-const objectMotionControls = new JointControls({
-  container: document.querySelector('[data-object-motion-list]'),
-  filter: (joint) => joint.kind === 'base',
-  emptyMessage: '',
-});
 const commandsPanel = new CommandsPanel({
   card: document.querySelector('[data-commands-card]'),
   list: document.querySelector('[data-commands-list]'),
@@ -142,12 +137,6 @@ const rigEditor = new RigEditorPanel({
   picker: new ViewportPicker({ domElement: rendererManager.renderer.domElement, camera: cameraManager.camera }),
   outline: new SelectionOutline(sceneManager.scene),
   gizmo: new JointGizmo(sceneManager.scene),
-});
-
-document.querySelector('[data-object-reset]').addEventListener('click', () => {
-  if (!activeAsset) return;
-  activeAsset.player.stop();
-  activeAsset.rig.setValues(Object.fromEntries(activeAsset.rig.baseJoints.map((joint) => [joint.id, 0])));
 });
 
 // Each asset keeps its own rig and player, so switching assets preserves its pose.
@@ -191,7 +180,6 @@ function handleAssetLoaded(asset) {
   });
 
   jointControls.setRig(asset.rig, asset.player);
-  objectMotionControls.setRig(asset.rig, asset.player);
   commandsPanel.setRig(asset.rig, asset.player);
   rigEditor.setAsset(asset);
   assetSelectionPanel.update(asset);
@@ -270,7 +258,6 @@ function render() {
   const deltaTime = Math.min(clock.getDelta(), 0.1);
   activeAsset?.player.update(deltaTime);
   jointControls.update();
-  objectMotionControls.update();
   rigEditor.update();
   assetManager.update(deltaTime);
   stationScene.update(deltaTime);
