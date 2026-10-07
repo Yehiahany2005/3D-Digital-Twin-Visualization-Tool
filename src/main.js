@@ -28,6 +28,8 @@ import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
 import { DigitalTwinViewManager } from './scene/DigitalTwinViewManager.js';
 import { fitEnvironment } from './scene/fitEnvironment.js';
 import { StationScene } from './station/StationScene.js';
+import { lastAsset, listStoredImports, rememberLastAsset } from './assets/ImportStore.js';
+import { getAssetConfig } from './assets/AssetRegistry.js';
 import './style.css';
 
 createIcons({ icons: { Box, Clapperboard, Cpu, Move3d, PlayCircle, SlidersHorizontal, TerminalSquare, Wrench } });
@@ -90,6 +92,7 @@ floor.receiveShadow = true;
 sceneManager.add(floor);
 
 const clock = new THREE.Clock();
+const DEFAULT_ASSET_ID = 'abb_irb6760';
 let visualizationManager;
 let activeAsset;
 let stationMode = false;
@@ -168,6 +171,7 @@ function ensureRig(asset) {
 function handleAssetLoaded(asset) {
   activeAsset?.player?.stop();
   activeAsset = asset;
+  rememberLastAsset(asset.config.id);
   ensureRig(asset);
   if (visualizationManager) {
     visualizationManager.replaceRobot(asset.model);
@@ -223,9 +227,21 @@ const assetSelectionPanel = new AssetSelectionPanel({
   restartButton: document.querySelector('[data-animation-restart]'),
   messageElement: document.querySelector('[data-asset-message]'),
   onStationSelect: openStation,
+  defaultAssetId: DEFAULT_ASSET_ID,
 });
 
-assetManager.select('abb_irb6760');
+// Lists the models saved on this device, then reopens the one in use before the page was refreshed.
+async function startUp() {
+  (await listStoredImports()).forEach(({ id, file }) => assetSelectionPanel.addStoredModel(id, file));
+  const last = lastAsset();
+  const first = last && last !== 'station' && getAssetConfig(last) ? last : DEFAULT_ASSET_ID;
+  assetSelectionPanel.setLoading(true);
+  await assetManager.select(first);
+  if (!assetManager.currentAsset) await assetManager.select(DEFAULT_ASSET_ID);
+  assetSelectionPanel.setLoading(false);
+}
+
+void startUp();
 
 async function openStation() {
   stationMode = true;
