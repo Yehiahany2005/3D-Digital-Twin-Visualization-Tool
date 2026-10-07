@@ -138,11 +138,12 @@
                   <button type="button" data-part-centre>Part centre</button>
                 </div>
                 <div class="button-row axis-buttons">
-                  <button type="button" data-axis="x">X</button>
-                  <button type="button" data-axis="y">Y</button>
-                  <button type="button" data-axis="z">Z</button>
-                  <button type="button" data-flip-axis>Flip</button>
+                  <button type="button" data-direction="0"></button>
+                  <button type="button" data-direction="1"></button>
+                  <button type="button" data-direction="2"></button>
+                  <button type="button" data-flip-axis title="Make it move the other way">Reverse</button>
                 </div>
+                <small class="editor-hint" data-direction-hint></small>
                 <div class="range-fields" data-limit-fields>
                   <span class="editor-subtitle">Range of motion</span>
                   <div class="limit-fields">

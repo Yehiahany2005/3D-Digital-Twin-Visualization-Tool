@@ -9,6 +9,26 @@ const TYPE_DEFAULTS = {
 };
 const TYPE_LABELS = { revolute: 'rotates', prismatic: 'slides', aim: 'follows (rotate)', stretch: 'follows (slide)' };
 const WORLD_AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+// Direction buttons in plain words. 'up' is vertical; 'view' and 'right' are the horizontal
+// directions into the screen and across it, so they match what the user is looking at.
+const DIRECTION_BUTTONS = {
+  revolute: {
+    buttons: [
+      { label: 'Turn', title: 'Spin left and right, like a swivel chair', direction: 'up' },
+      { label: 'Swing', title: 'Swing up and down as you see it now, like a clock hand', direction: 'view' },
+      { label: 'Tip', title: 'Lean toward and away from you', direction: 'right' },
+    ],
+    hint: 'Turn spins it like a swivel chair. Swing moves it up and down like a clock hand, as you see it now. Tip leans it toward you.',
+  },
+  prismatic: {
+    buttons: [
+      { label: 'Up/down', title: 'Slide up and down', direction: 'up' },
+      { label: 'Sideways', title: 'Slide left and right as you see it now', direction: 'right' },
+      { label: 'In/out', title: 'Slide toward and away from you', direction: 'view' },
+    ],
+    hint: 'Directions are as you see the model now.',
+  },
+};
 
 function slug(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'joint';
@@ -75,12 +95,12 @@ export class RigEditorPanel {
       this.writeVectorFields();
       return this.showMessage('Pivot moved to the centre of the selected parts.');
     });
-    Object.entries(WORLD_AXES).forEach(([name, direction]) => {
-      this.query(`[data-axis="${name}"]`).addEventListener('click', () => {
-        // Buttons use the viewport's X/Y/Z (Y is up), converted into the model's own frame.
-        const inverse = this.rig.content.getWorldQuaternion(new THREE.Quaternion()).invert();
-        this.draft.axis = direction.clone().applyQuaternion(inverse).normalize();
+    [0, 1, 2].forEach((index) => {
+      this.query(`[data-direction="${index}"]`).addEventListener('click', () => {
+        const { direction, label } = DIRECTION_BUTTONS[this.motion].buttons[index];
+        this.draft.axis = this.snapToModelAxis(this.worldDirection(direction), direction !== 'up');
         this.writeVectorFields();
+        this.showMessage(`Direction set to "${label}". The arrow and ring on the model show it; use Reverse if it goes the wrong way.`);
       });
     });
     this.query('[data-flip-axis]').addEventListener('click', () => {
@@ -229,6 +249,10 @@ export class RigEditorPanel {
       if (this.draft.pivotSource === 'auto' && this.selection.length) this.draft.pivot = this.selectionCentre();
       if (!this.draft.nameEdited) this.draft.name = this.suggestName();
       this.draft.parent = this.suggestParent();
+      // Adding a second movement to parts that already move: start from that joint's pivot.
+      const parent = this.rig.jointsById.get(this.draft.parent);
+      const stacking = parent && this.selection.length && this.selection.every((object) => parent.parts.includes(object));
+      if (this.draft.pivotSource === 'auto' && stacking) this.draft.pivot = parent.pivotInModel.clone();
       this.writeForm();
     }
     this.refreshSelection();
@@ -352,6 +376,34 @@ export class RigEditorPanel {
     return this.showMessage(`Follow point set on "${this.rig.jointsById.get(owner).name}".`);
   }
 
+  worldDirection(name) {
+    if (name === 'up') return WORLD_AXES.y.clone();
+    const { camera } = this.picker;
+    const direction = name === 'view'
+      ? camera.getWorldDirection(new THREE.Vector3())
+      : WORLD_AXES.x.clone().applyQuaternion(camera.quaternion);
+    return direction.setY(0);
+  }
+
+  // The model's own axis closest to a world direction, so the result lines up with the part
+  // exactly rather than with the camera's angle. Horizontal directions skip the vertical axis.
+  snapToModelAxis(worldDirection, horizontal) {
+    const inverse = this.rig.content.getWorldQuaternion(new THREE.Quaternion()).invert();
+    const direction = worldDirection.applyQuaternion(inverse);
+    const up = WORLD_AXES.y.clone().applyQuaternion(inverse);
+    let best = WORLD_AXES.y.clone();
+    let bestScore = -1;
+    Object.values(WORLD_AXES).forEach((axis) => {
+      if (horizontal && Math.abs(axis.dot(up)) > 0.7) return;
+      const score = Math.abs(axis.dot(direction));
+      if (score > bestScore) {
+        bestScore = score;
+        best = axis.clone().multiplyScalar(Math.sign(axis.dot(direction)) || 1);
+      }
+    });
+    return best;
+  }
+
   // ---- Draft & form ---------------------------------------------------------
 
   newDraft() {
@@ -385,7 +437,8 @@ export class RigEditorPanel {
     return named ? named.name : `Joint ${(this.rig?.joints.length || 0) + 1}`;
   }
 
-  // Default parent: the joint that owns the closest original ancestor of the selection.
+  // Default parent: the joint that owns the selection or its closest original ancestor, so a
+  // new joint on parts that already move adds its movement on top of the existing one.
   suggestParent() {
     let best = '';
     let bestDepth = -1;
@@ -393,7 +446,8 @@ export class RigEditorPanel {
       if (joint.id === this.draft.editingId) return;
       joint.parts.forEach((part) => {
         const path = part.userData.partPath;
-        const owns = this.selection.some((object) => isOriginalDescendant(object.userData.partPath, path));
+        const owns = this.selection.some((object) => object.userData.partPath === path
+          || isOriginalDescendant(object.userData.partPath, path));
         if (owns && path.length > bestDepth) {
           best = joint.id;
           bestDepth = path.length;
@@ -459,6 +513,13 @@ export class RigEditorPanel {
     this.field('parent').value = draft.parent;
 
     const linked = draft.type === 'aim' || draft.type === 'stretch';
+    const directions = DIRECTION_BUTTONS[motion];
+    directions.buttons.forEach(({ label, title }, index) => {
+      const button = this.query(`[data-direction="${index}"]`);
+      button.textContent = label;
+      button.title = title;
+    });
+    this.query('[data-direction-hint]').textContent = directions.hint;
     this.query('[data-link-fields]').hidden = !linked;
     this.query('[data-limit-fields]').hidden = linked;
     this.query('[data-speed-field]').hidden = linked;
@@ -479,6 +540,10 @@ export class RigEditorPanel {
     message.hidden = !text;
     message.textContent = text || '';
     message.classList.toggle('is-error', isError);
+  }
+
+  get motion() {
+    return this.draft.type === 'prismatic' || this.draft.type === 'stretch' ? 'prismatic' : 'revolute';
   }
 
   stretchAnchor() {
@@ -544,7 +609,8 @@ export class RigEditorPanel {
 
   validateDraft() {
     const { draft } = this;
-    if (!this.selection.length) return 'Select the parts that move first.';
+    const carriesJoints = draft.editingId && this.rig.definition.joints.some((joint) => joint.parent === draft.editingId);
+    if (!this.selection.length && !carriesJoints) return 'Select the parts that move first.';
     if (draft.axis.lengthSq() === 0) return 'The axis cannot be zero.';
     if (draft.type === 'aim' || draft.type === 'stretch') {
       if (!draft.target || !this.rig.jointsById.has(draft.linkJoint)) return 'Pick the follow point on the model.';
@@ -566,13 +632,28 @@ export class RigEditorPanel {
 
     // A part can belong to only one joint: take selected parts away from other joints.
     let moved = 0;
+    let movedFromParent = 0;
     definition.joints.forEach((other) => {
       if (other.id === id) return;
       const before = other.parts.length;
       other.parts = other.parts.filter((part) => !claimedPaths.has(part.path)
         && !this.rig.jointsById.get(other.id)?.parts.some((object) => claimedPaths.has(object.userData.partPath) && object.name === part.name));
-      moved += before - other.parts.length;
+      if (other.id === joint.parent) movedFromParent += before - other.parts.length;
+      else moved += before - other.parts.length;
     });
+
+    // If the new joint took every part of the joint it is mounted on, whatever rode on those
+    // parts (mounted joints, follow points) now rides on the new joint instead.
+    const parentDefinition = definition.joints.find((other) => other.id === joint.parent);
+    if (!this.draft.editingId && movedFromParent && !parentDefinition.parts.length) {
+      definition.joints.forEach((other) => {
+        if (other.id === id) return;
+        if (other.parent === parentDefinition.id) other.parent = id;
+        ['aim', 'stretch'].forEach((key) => {
+          if (other[key]?.joint === parentDefinition.id) other[key].joint = id;
+        });
+      });
+    }
 
     // Joints on the base whose parts sit inside the new joint's parts get mounted on it.
     if (!this.draft.editingId) {
@@ -600,7 +681,10 @@ export class RigEditorPanel {
     const verb = this.draft.editingId ? 'saved' : 'created';
     this.resetForm();
     this.setSelection([]);
-    const note = moved ? ` ${moved} part${moved === 1 ? ' was' : 's were'} moved from another joint.` : '';
+    // Parts taken from the joint this one is mounted on still follow it, so they gain a second movement.
+    const parentName = this.rig.jointsById.get(joint.parent)?.name;
+    const note = (movedFromParent ? ` It moves together with "${parentName}" and adds its own movement on top.` : '')
+      + (moved ? ` ${moved} part${moved === 1 ? ' was' : 's were'} moved from another joint.` : '');
     return this.showMessage(`Joint "${joint.name}" ${verb}. Try it in the Joints panel.${note}`);
   }
 
@@ -659,7 +743,11 @@ export class RigEditorPanel {
       name.textContent = joint.name;
       const detail = document.createElement('small');
       const parent = joint.definition.parent ? this.rig.jointsById.get(joint.definition.parent)?.name : 'base';
-      detail.textContent = `${TYPE_LABELS[uiType(joint.definition)]} · on ${parent} · ${joint.parts.length} part${joint.parts.length === 1 ? '' : 's'}`;
+      const carried = this.rig.joints.filter((other) => other.definition.parent === joint.id).map((other) => other.name);
+      const contents = !joint.parts.length && carried.length
+        ? `carries ${carried.join(', ')}`
+        : `${joint.parts.length} part${joint.parts.length === 1 ? '' : 's'}`;
+      detail.textContent = `${TYPE_LABELS[uiType(joint.definition)]} · on ${parent} · ${contents}`;
       text.append(name, detail);
       const edit = document.createElement('button');
       edit.type = 'button';

@@ -75,11 +75,14 @@ export class JointControls {
     const entry = { joint, value, slider: null, lastValue: null, dragging: false };
 
     if (joint.driven) {
-      const tag = document.createElement('small');
-      tag.className = 'joint-tag';
-      tag.textContent = 'linked';
-      tag.title = 'Moves automatically with the joint it is linked to.';
-      name.appendChild(tag);
+      // Followers have no slider: say which joint to move instead.
+      const leader = this.rig.jointsById.get((joint.definition.aim || joint.definition.stretch).joint);
+      const note = document.createElement('small');
+      note.className = 'joint-follow-note';
+      note.textContent = leader
+        ? `Moves by itself when you move "${leader.name}".`
+        : 'Moves by itself when the joint it follows moves.';
+      row.appendChild(note);
     } else {
       const controls = document.createElement('div');
       controls.className = 'joint-row-controls';

@@ -462,15 +462,10 @@ body { background: var(--app-bg); }
   font-weight: 600;
 }
 
-.joint-tag {
-  margin-left: 0.4rem;
-  padding: 0.05rem 0.3rem;
-  border: 1px solid var(--border);
-  border-radius: 2px;
+.joint-follow-note {
   color: var(--subtle);
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 0.64rem;
+  line-height: 1.4;
 }
 
 .joint-row-controls {
