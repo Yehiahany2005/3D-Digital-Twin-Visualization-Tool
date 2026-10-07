@@ -8,6 +8,9 @@ const TYPE_DEFAULTS = {
   prismatic: { min: -500, max: 500, speed: 250 },
 };
 const TYPE_LABELS = { revolute: 'rotates', prismatic: 'slides', aim: 'follows (rotate)', stretch: 'follows (slide)' };
+const TYPE_ICONS = { revolute: '⟳', prismatic: '↕', aim: '⤷', stretch: '⤷' };
+// The joint list gets a search box once it holds more than this many joints.
+const JOINT_FILTER_FROM = 6;
 const WORLD_AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
 // Direction buttons in plain words. 'up' is vertical; 'view' and 'right' are the horizontal
 // directions into the screen and across it, so they match what the user is looking at.
@@ -128,6 +131,7 @@ export class RigEditorPanel {
       if (file) await this.importRig(file);
     });
     this.query('[data-reset-rig]').addEventListener('click', () => this.resetRig());
+    this.query('[data-joint-filter]').addEventListener('input', () => this.renderJointList());
   }
 
   setAsset(asset) {
@@ -421,6 +425,7 @@ export class RigEditorPanel {
     this.field('name').oninput = () => { this.draft.nameEdited = true; };
     this.writeForm();
     this.showMessage(null);
+    this.renderJointList();
   }
 
   suggestName() {
@@ -551,6 +556,7 @@ export class RigEditorPanel {
     this.refreshSelection();
     this.writeForm();
     this.showMessage(null);
+    this.renderJointList();
   }
 
   buildDefinition(id) {
@@ -686,49 +692,109 @@ export class RigEditorPanel {
     this.showMessage(`Joint "${target.name}" deleted.`);
   }
 
+  // Joints as a tree, each under the joint it is mounted on: [{ joint, depth }].
+  jointTree() {
+    const ids = new Set(this.rig.joints.map((joint) => joint.id));
+    const children = new Map();
+    this.rig.joints.forEach((joint) => {
+      const parent = ids.has(joint.definition.parent) ? joint.definition.parent : null;
+      if (!children.has(parent)) children.set(parent, []);
+      children.get(parent).push(joint);
+    });
+    const ordered = [];
+    const visit = (parent, depth) => (children.get(parent) || []).forEach((joint) => {
+      ordered.push({ joint, depth });
+      visit(joint.id, depth + 1);
+    });
+    visit(null, 0);
+    return ordered;
+  }
+
   renderJointList() {
     const list = this.query('[data-joint-defs]');
     list.replaceChildren();
+    this.highlight.setPreview([]);
     if (!this.rig) return;
-    this.rig.warnings.forEach((warning) => {
+    const joints = this.rig.joints;
+    this.query('[data-joint-count]').textContent = joints.length ? String(joints.length) : '';
+    const filterInput = this.query('[data-joint-filter]');
+    filterInput.hidden = joints.length <= JOINT_FILTER_FROM;
+    const filter = filterInput.hidden ? '' : filterInput.value.trim().toLowerCase();
+
+    if (this.rig.warnings.length) {
       const item = document.createElement('li');
-      item.className = 'joint-def-warning';
-      item.textContent = warning;
+      const details = document.createElement('details');
+      details.className = 'joint-def-warnings';
+      const summary = document.createElement('summary');
+      summary.textContent = `⚠ ${this.rig.warnings.length} warning${this.rig.warnings.length === 1 ? '' : 's'}`;
+      details.appendChild(summary);
+      this.rig.warnings.forEach((warning) => {
+        const line = document.createElement('p');
+        line.textContent = warning;
+        details.appendChild(line);
+      });
+      item.appendChild(details);
       list.appendChild(item);
-    });
-    if (!this.rig.joints.length) {
-      const empty = document.createElement('li');
-      empty.className = 'empty-state';
-      empty.textContent = 'No joints yet. Select parts above, set the axis, then create a joint.';
-      list.appendChild(empty);
+    }
+    if (!joints.length) {
+      list.appendChild(this.emptyJointItem('No joints yet. Select parts above, set the axis, then create a joint.'));
       return;
     }
-    this.rig.joints.forEach((joint) => {
-      const item = document.createElement('li');
-      item.className = 'joint-def';
-      const text = document.createElement('div');
-      const name = document.createElement('strong');
-      name.textContent = joint.name;
-      const detail = document.createElement('small');
-      const parent = joint.definition.parent ? this.rig.jointsById.get(joint.definition.parent)?.name : 'base';
-      const carried = this.rig.joints.filter((other) => other.definition.parent === joint.id).map((other) => other.name);
-      const contents = !joint.parts.length && carried.length
-        ? `carries ${carried.join(', ')}`
-        : `${joint.parts.length} part${joint.parts.length === 1 ? '' : 's'}`;
-      detail.textContent = `${TYPE_LABELS[uiType(joint.definition)]} · on ${parent} · ${contents}`;
-      text.append(name, detail);
-      const edit = document.createElement('button');
-      edit.type = 'button';
-      edit.textContent = 'Edit';
-      edit.addEventListener('click', () => this.editJoint(joint.id));
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.textContent = 'Delete';
-      remove.setAttribute('aria-label', `Delete ${joint.name}`);
-      remove.addEventListener('click', () => this.deleteJoint(joint.id));
-      item.append(text, edit, remove);
-      list.appendChild(item);
-    });
+    const rows = this.jointTree().filter(({ joint }) => !filter || joint.name.toLowerCase().includes(filter));
+    if (!rows.length) list.appendChild(this.emptyJointItem(`No joint matches "${filterInput.value.trim()}".`));
+    rows.forEach(({ joint, depth }) => list.appendChild(this.createJointRow(joint, filter ? 0 : depth)));
+  }
+
+  emptyJointItem(text) {
+    const item = document.createElement('li');
+    item.className = 'empty-state';
+    item.textContent = text;
+    return item;
+  }
+
+  createJointRow(joint, depth) {
+    const type = uiType(joint.definition);
+    const parent = joint.definition.parent ? this.rig.jointsById.get(joint.definition.parent)?.name : 'base';
+    const carried = this.rig.joints.filter((other) => other.definition.parent === joint.id).map((other) => other.name);
+    const contents = !joint.parts.length && carried.length
+      ? `carries ${carried.join(', ')}`
+      : `${joint.parts.length} part${joint.parts.length === 1 ? '' : 's'}`;
+
+    const item = document.createElement('li');
+    item.className = 'joint-def';
+    item.classList.toggle('is-active', joint.id === this.draft?.editingId);
+    item.style.setProperty('--depth', String(Math.min(depth, 6)));
+    item.classList.toggle('is-nested', depth > 0);
+
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'joint-def-name';
+    edit.title = `${joint.name}: ${TYPE_LABELS[type]} · on ${parent} · ${contents}\nClick to edit.`;
+    const icon = document.createElement('span');
+    icon.className = 'joint-def-icon';
+    icon.textContent = TYPE_ICONS[type];
+    icon.setAttribute('aria-hidden', 'true');
+    const name = document.createElement('span');
+    name.textContent = joint.name;
+    edit.append(icon, name);
+    edit.setAttribute('aria-label', `Edit ${joint.name} (${TYPE_LABELS[type]})`);
+    edit.addEventListener('click', () => this.editJoint(joint.id));
+
+    // Hovering a row lights up that joint's parts on the model.
+    const meshes = () => joint.parts.flatMap((part) => this.meshesUnder(part));
+    item.addEventListener('pointerenter', () => this.highlight.setPreview(meshes()));
+    item.addEventListener('pointerleave', () => this.highlight.setPreview([]));
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'joint-def-delete';
+    remove.textContent = '✕';
+    remove.title = `Delete ${joint.name}`;
+    remove.setAttribute('aria-label', `Delete ${joint.name}`);
+    remove.addEventListener('click', () => this.deleteJoint(joint.id));
+
+    item.append(edit, remove);
+    return item;
   }
 
   // ---- Rig file -----------------------------------------------------------------

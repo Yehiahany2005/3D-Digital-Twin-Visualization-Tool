@@ -827,28 +827,93 @@ canvas { display: block; }
   color: #f0b4b4;
 }
 
+.joint-filter {
+  width: 100%;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid #50545a;
+  border-radius: 3px;
+  background: #34373b;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.68rem;
+}
+
+.joint-filter[hidden] { display: none; }
+.joint-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Joint tree: one slim row per joint, indented under its parent; the list scrolls on its own. */
 .joint-defs {
   display: grid;
-  gap: 0.35rem;
+  gap: 2px;
+  max-height: 15rem;
   margin: 0;
-  padding: 0;
+  padding: 0 0.2rem 0 0;
+  overflow-y: auto;
   list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
 .joint-def {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) 1.5rem;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.4rem 0.5rem;
-  border: 1px solid var(--border-soft);
+  gap: 2px;
+  margin-left: calc(var(--depth, 0) * 0.65rem);
+  border-left: 1px solid transparent;
   border-radius: 3px;
 }
 
-.joint-def strong { display: block; color: var(--text); font-size: 0.7rem; font-weight: 600; }
-.joint-def small { color: var(--subtle); font-size: 0.62rem; }
+.joint-def.is-nested { border-left-color: var(--border-soft); }
 
-.joint-def-warning { color: #f0c58a; font-size: 0.64rem; line-height: 1.4; }
+.joint-def button {
+  min-height: 1.6rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.68rem;
+}
+
+.joint-def-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.2rem 0.4rem;
+  text-align: left;
+}
+
+.joint-def-name span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.joint-def-icon {
+  flex: 0 0 0.8rem;
+  color: var(--accent);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.joint-def:hover { background: #34373b; }
+.joint-def-name:hover { color: #dff8fb; }
+.joint-def-delete { color: var(--subtle) !important; }
+.joint-def:not(:hover):not(.is-active) .joint-def-delete { opacity: 0.45; }
+.joint-def-delete:hover { border-color: #8a4b4b !important; background: rgba(214, 102, 102, 0.1) !important; color: #f0b4b4 !important; }
+
+.joint-def.is-active { background: var(--accent-soft); }
+.joint-def.is-active .joint-def-name { border-color: var(--accent); color: #dff8fb; font-weight: 600; }
+
+.joint-def button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.joint-def-warnings { color: #f0c58a; font-size: 0.64rem; line-height: 1.4; }
+.joint-def-warnings summary { cursor: pointer; font-weight: 600; }
+.joint-def-warnings p { margin: 0.25rem 0 0; }
 
 /* Animation setup */
 
