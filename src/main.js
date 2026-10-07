@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   Box,
+  Clapperboard,
   Cpu,
   Move3d,
   PlayCircle,
@@ -19,6 +20,7 @@ import { MotionPlayer } from './motion/MotionPlayer.js';
 import { JointControls } from './ui/JointControls.js';
 import { CommandsPanel } from './ui/CommandsPanel.js';
 import { RigEditorPanel } from './ui/RigEditorPanel.js';
+import { AnimationEditorPanel } from './ui/AnimationEditorPanel.js';
 import { JointGizmo, PartHighlight, SelectionOutline, ViewportPicker } from './scene/RigHelpers.js';
 import { loadSavedRig } from './motion/RigStore.js';
 import { AssetManager } from './scene/AssetManager.js';
@@ -28,7 +30,7 @@ import { fitEnvironment } from './scene/fitEnvironment.js';
 import { StationScene } from './station/StationScene.js';
 import './style.css';
 
-createIcons({ icons: { Box, Cpu, Move3d, PlayCircle, SlidersHorizontal, TerminalSquare, Wrench } });
+createIcons({ icons: { Box, Clapperboard, Cpu, Move3d, PlayCircle, SlidersHorizontal, TerminalSquare, Wrench } });
 
 function updateClock() {
   const timeElement = document.querySelector('[data-current-time]');
@@ -140,6 +142,13 @@ const rigEditor = new RigEditorPanel({
   gizmo: new JointGizmo(sceneManager.scene),
 });
 
+const animationEditorCard = document.querySelector('[data-animation-editor]');
+const animationEditor = new AnimationEditorPanel({
+  card: animationEditorCard,
+  // The exported file should carry the model's own materials, not the Digital Twin View tint.
+  beforeExport: () => visualizationManager?.useOriginalMaterials(),
+});
+
 // Each asset keeps its own rig and player, so switching assets preserves its pose.
 function ensureRig(asset) {
   if (asset.rig) return;
@@ -183,6 +192,7 @@ function handleAssetLoaded(asset) {
   jointControls.setRig(asset.rig, asset.player);
   commandsPanel.setRig(asset.rig, asset.player);
   rigEditor.setAsset(asset);
+  animationEditor.setAsset(asset);
   assetSelectionPanel.update(asset);
   if (stationMode && asset.config.id === 'abb_irb6760') void stationScene.show(asset);
 }
@@ -220,6 +230,8 @@ assetManager.select('abb_irb6760');
 async function openStation() {
   stationMode = true;
   assetSelectionCard.hidden = true;
+  // The station cycle drives the robot itself, so sequences would fight it.
+  animationEditorCard.hidden = true;
   await assetManager.select('abb_irb6760');
   if (activeAsset?.config.id === 'abb_irb6760') await stationScene.show(activeAsset);
   stationCard.hidden = false;
@@ -238,6 +250,7 @@ function closeStation() {
   }
   stationCard.hidden = true;
   assetSelectionCard.hidden = false;
+  animationEditorCard.hidden = false;
   assetSelect.value = activeAsset?.config.id || 'abb_irb6760';
   stationDebug.checked = false;
 }

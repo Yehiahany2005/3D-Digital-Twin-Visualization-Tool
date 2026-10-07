@@ -891,3 +891,134 @@ canvas { display: block; }
 .joint-def small { color: var(--subtle); font-size: 0.62rem; }
 
 .joint-def-warning { color: #f0c58a; font-size: 0.64rem; line-height: 1.4; }
+
+/* Animation setup */
+
+.inline-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+}
+
+.inline-form input,
+.inline-form select,
+.motion-item input,
+.step-row select,
+.step-row input {
+  width: 100%;
+  min-width: 0;
+  min-height: 1.85rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid #50545a;
+  border-radius: 3px;
+  background: #34373b;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.7rem;
+}
+
+.motion-item input {
+  border-color: transparent;
+  background: transparent;
+  font-weight: 600;
+}
+
+.motion-item input:hover { border-color: #50545a; }
+
+.inline-form button,
+.motion-item button,
+.step-row button {
+  min-height: 1.85rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #50545a;
+  border-radius: 3px;
+  background: #34373b;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.inline-form .primary-button {
+  border-color: var(--accent);
+  background: rgba(105, 199, 211, 0.22);
+  color: #dff8fb;
+}
+
+.inline-form button:hover:not(:disabled),
+.motion-item button:hover:not(:disabled),
+.step-row button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.inline-form :is(input, select, button):focus-visible,
+.motion-item :is(input, button):focus-visible,
+.step-row :is(input, select, button):focus-visible,
+.checkbox-field input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.inline-form :is(input, select, button):disabled,
+.motion-item button:disabled,
+.step-row button:disabled,
+.button-row button:disabled { cursor: default; opacity: 0.42; }
+
+.motion-list,
+.step-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.motion-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.25rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 3px;
+}
+
+.sequence-editor { display: grid; gap: 0.45rem; }
+.sequence-editor[hidden] { display: none; }
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.checkbox-field input { margin: 0; accent-color: var(--accent); }
+
+.step-row {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr) 3.3rem 0.5rem repeat(3, 1.6rem);
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.step-row button { padding: 0.3rem 0; }
+
+.step-number,
+.step-unit {
+  color: var(--subtle);
+  font-size: 0.64rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.step-wait {
+  padding-left: 0.45rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-style: italic;
+}
+
+.step-row input::placeholder { color: var(--subtle); font-style: italic; }

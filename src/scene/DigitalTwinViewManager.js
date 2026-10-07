@@ -162,6 +162,14 @@ export class DigitalTwinViewManager {
     }
   }
 
+  // Puts the model's own materials back (e.g. while exporting it) and returns a function that
+  // restores whatever was showing.
+  useOriginalMaterials() {
+    const shown = this.materialSlots.map((slot) => [slot, slot.object.material]);
+    this.materialSlots.forEach((slot) => { slot.object.material = slot.original; });
+    return () => shown.forEach(([slot, material]) => { slot.object.material = material; });
+  }
+
   startTransition(toDigitalTwin) {
     const startProgress = toDigitalTwin ? 0 : 1;
     this.materialSlots.forEach((slot) => {

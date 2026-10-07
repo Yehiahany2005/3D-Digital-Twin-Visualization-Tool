@@ -42,6 +42,35 @@ export function sampleMove(plan, elapsed) {
   return values;
 }
 
+// A move step either names a saved pose ({ pose: id }) or carries its own values.
+export function stepValues(rig, step) {
+  if (step.pose !== undefined) return rig.poses.find((pose) => pose.id === step.pose)?.values || {};
+  return step.values || {};
+}
+
+export function stepLabel(rig, step) {
+  if (step.type === 'wait') return 'waiting';
+  if (step.label) return step.label;
+  return rig.poses.find((pose) => pose.id === step.pose)?.name || 'moving';
+}
+
+// The timeline a sequence follows from `startPose`, without moving the rig:
+// one segment per step, each with its start time, plan and the full pose it starts from.
+export function planSequence(rig, sequence, startPose) {
+  let pose = { ...startPose };
+  let time = 0;
+  const segments = (sequence.steps || []).map((step) => {
+    const plan = step.type === 'wait'
+      ? { tracks: [], duration: Math.max(0, step.duration || 0) }
+      : planMove(rig, pose, stepValues(rig, step), step.duration);
+    const segment = { step, start: time, plan, from: pose };
+    pose = { ...pose, ...sampleMove(plan, plan.duration) };
+    time += plan.duration;
+    return segment;
+  });
+  return { segments, duration: time, endPose: pose };
+}
+
 export class MotionPlayer {
   constructor(rig) {
     this.rig = rig;
@@ -70,7 +99,7 @@ export class MotionPlayer {
     return new Promise((resolve) => {
       const plan = step.type === 'wait'
         ? { tracks: [], duration: Math.max(0, step.duration || 0) }
-        : planMove(this.rig, this.rig.getPose(), step.values, step.duration);
+        : planMove(this.rig, this.rig.getPose(), stepValues(this.rig, step), step.duration);
       this.lastStepDuration = plan.duration;
       this.active = { plan, elapsed: 0, resolve };
       if (plan.duration === 0) this.finishActive(true);
@@ -102,8 +131,7 @@ export class MotionPlayer {
       loopTime = 0;
       for (const step of sequence.steps || []) {
         if (runId !== this.runId) return false;
-        const label = step.type === 'wait' ? `${sequence.name}: waiting` : `${sequence.name}: ${step.label || 'moving'}`;
-        this.setStatus(label);
+        this.setStatus(`${sequence.name}: ${stepLabel(this.rig, step)}`);
         const completed = await this.runStep(step);
         if (!completed) return false;
         loopTime += this.lastStepDuration;

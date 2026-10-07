@@ -14,6 +14,13 @@ import * as THREE from 'three';
 //     aim:     { joint, target }         optional: rotate automatically so the pivot keeps pointing at a
 //                                        point carried by another joint (cylinders, linkages),
 //     stretch: { joint, target, anchor } optional: slide automatically to keep target at the same distance,
+//   }],
+//   poses: [{ id, name, values: { jointId: value } }],
+//   sequences: [{
+//     id, name, loop,
+//     steps: [{ type: 'move', pose: poseId, duration }   duration in seconds; omit it to move as fast as
+//           | { type: 'move', label, values, duration }  the joints' speeds allow
+//           | { type: 'wait', duration }],
 //   }]
 //
 // Every joint gets a pivot group placed at its pivot. Parts are re-parented under that
@@ -155,6 +162,12 @@ export class Rig {
     };
     this.build();
     this.setValues(previousValues);
+    this.emitChange();
+  }
+
+  // Replaces the saved poses and sequences. Unlike setDefinition, the joints are not rebuilt.
+  setMotions({ poses = this.definition.poses, sequences = this.definition.sequences }) {
+    this.definition = { ...this.definition, poses, sequences };
     this.emitChange();
   }
 
