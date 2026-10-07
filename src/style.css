@@ -979,7 +979,7 @@ canvas { display: block; }
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  column-gap: 0.45rem;
+  column-gap: 0.5rem;
   color: var(--subtle);
   font-size: 0.66rem;
   line-height: 1.45;
@@ -998,14 +998,7 @@ canvas { display: block; }
 
 .follow-status strong { color: #fff; font-weight: 700; }
 
-.follow-status small {
-  grid-column: 2;
-  color: #b9a8dd;
-  font-size: 0.62rem;
-}
-
 .follow-swatch {
-  grid-row: span 2;
   width: 0.7rem;
   height: 0.7rem;
   border-radius: 50%;

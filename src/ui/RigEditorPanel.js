@@ -308,7 +308,7 @@ export class RigEditorPanel {
       button.append(name, count);
       button.title = name.textContent;
       const preview = () => this.highlight.setPreview(level.meshes);
-      const endPreview = () => this.highlight.setPreview([]);
+      const endPreview = () => this.highlight.endPreviewSoon();
       button.addEventListener('pointerenter', preview);
       button.addEventListener('focus', preview);
       button.addEventListener('pointerleave', endPreview);
@@ -533,9 +533,7 @@ export class RigEditorPanel {
       const name = document.createElement('strong');
       name.textContent = followed.name;
       text.append(name);
-      const note = document.createElement('small');
-      note.textContent = 'Its parts are violet on the model; the dashed line runs to the follow point.';
-      status.replaceChildren(swatch, text, note);
+      status.replaceChildren(swatch, text);
     }
     this.refreshLinked();
   }
@@ -855,7 +853,7 @@ export class RigEditorPanel {
     // Hovering a row lights up that joint's parts on the model.
     const meshes = () => joint.parts.flatMap((part) => this.meshesUnder(part));
     row.addEventListener('pointerenter', () => this.highlight.setPreview(meshes()));
-    row.addEventListener('pointerleave', () => this.highlight.setPreview([]));
+    row.addEventListener('pointerleave', () => this.highlight.endPreviewSoon());
 
     const remove = document.createElement('button');
     remove.type = 'button';

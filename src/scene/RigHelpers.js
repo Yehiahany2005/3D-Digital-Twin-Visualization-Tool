@@ -6,6 +6,9 @@ const TARGET_COLOR = 0xf2b84b;
 // Parts of the joint a follower (cylinder, rod) follows.
 export const LINK_COLOR = 0xb38cff;
 const DIM_COLOR = 0x111518;
+// How long a preview lingers after the pointer leaves, so moving across the small gap between
+// two buttons goes straight from one preview to the next instead of flashing back to normal.
+const PREVIEW_LINGER_MS = 250;
 
 // Turns clicks on the viewport into raycast hits, ignoring drags (which orbit the camera).
 export class ViewportPicker {
@@ -112,10 +115,17 @@ export class PartHighlight {
   }
 
   setPreview(meshes) {
+    clearTimeout(this.previewTimer);
     const included = new Set(meshes);
     this.fill(this.layers.preview, meshes);
     this.fill(this.layers.previewXray, meshes);
     this.fill(this.layers.dim, meshes.length ? this.modelMeshes.filter((mesh) => !included.has(mesh)) : []);
+  }
+
+  // Ends the preview after a short delay; a new preview in the meantime replaces it directly.
+  endPreviewSoon() {
+    clearTimeout(this.previewTimer);
+    this.previewTimer = setTimeout(() => this.setPreview([]), PREVIEW_LINGER_MS);
   }
 
   clear() {
