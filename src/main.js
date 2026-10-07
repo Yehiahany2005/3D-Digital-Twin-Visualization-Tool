@@ -25,6 +25,7 @@ import { AssetManager } from './scene/AssetManager.js';
 import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
 import { DigitalTwinViewManager } from './scene/DigitalTwinViewManager.js';
 import { fitEnvironment } from './scene/fitEnvironment.js';
+import { StationScene } from './station/StationScene.js';
 import './style.css';
 
 createIcons({ icons: { Box, Cpu, Move3d, PlayCircle, SlidersHorizontal, TerminalSquare, Wrench } });
@@ -44,6 +45,27 @@ window.setInterval(updateClock, 1000);
 const container = document.querySelector('#viewport');
 const visualizationButton = document.querySelector('[data-view-toggle]');
 const visualizationMode = document.querySelector('[data-view-mode]');
+const stationCard = document.querySelector('[data-station-card]');
+const assetSelect = document.querySelector('[data-asset-select]');
+const stationDebug = document.querySelector('[data-station-debug]');
+const stationExit = document.querySelector('[data-station-exit]');
+const assetSelectionCard = document.querySelector('[data-asset-selection-card]');
+const stationStart = document.querySelector('[data-station-start]');
+const stationReset = document.querySelector('[data-station-reset]');
+const stationSpeed = document.querySelector('[data-station-speed]');
+const stationRobotState = document.querySelector('[data-station-robot-state]');
+const stationConveyorState = document.querySelector('[data-station-conveyor-state]');
+const stationGripperState = document.querySelector('[data-station-gripper-state]');
+const stationBoxState = document.querySelector('[data-station-box-state]');
+const stationBoxNumber = document.querySelector('[data-station-box-number]');
+const stationTcpPosition = document.querySelector('[data-station-tcp-position]');
+const stationBoxPosition = document.querySelector('[data-station-box-position]');
+const stationDistance = document.querySelector('[data-station-distance]');
+const stationStackTarget = document.querySelector('[data-station-stack-target]');
+const stationPositionError = document.querySelector('[data-station-position-error]');
+const stationBottomHeight = document.querySelector('[data-station-bottom-height]');
+const stationBoxRotation = document.querySelector('[data-station-box-rotation]');
+const stationState = document.querySelector('[data-station-state]');
 const sceneManager = new SceneManager();
 const cameraManager = new CameraManager(container);
 const rendererManager = new RendererManager(container);
@@ -68,6 +90,34 @@ sceneManager.add(floor);
 const clock = new THREE.Clock();
 let visualizationManager;
 let activeAsset;
+let stationMode = false;
+const stationScene = new StationScene({
+  scene: sceneManager.scene,
+  cameraManager,
+  controls,
+  floor,
+});
+stationScene.setCycleUpdateHandler((cycle) => {
+  stationConveyorState.textContent = cycle.conveyorState;
+  stationRobotState.textContent = cycle.robotState;
+  stationGripperState.textContent = cycle.gripperState;
+  stationBoxState.textContent = cycle.boxState;
+  const totalBoxes = cycle.layout.stack.columns * cycle.layout.stack.rows * cycle.layout.stack.layers;
+  stationBoxNumber.textContent = `${Math.min(cycle.boxNumber + 1, totalBoxes)}/${totalBoxes}`;
+  stationTcpPosition.textContent = cycle.getSuctionWorld().toArray().map((value) => value.toFixed(2)).join(', ');
+  stationBoxPosition.textContent = cycle.box
+    ? cycle.getBoxCenter().toArray().map((value) => value.toFixed(2)).join(', ')
+    : '—';
+  stationDistance.textContent = Number.isFinite(cycle.distance) ? `${cycle.distance.toFixed(3)} m` : '—';
+  stationStackTarget.textContent = cycle.stackTarget
+    ? cycle.stackTarget.toArray().map((value) => value.toFixed(2)).join(', ')
+    : '—';
+  stationPositionError.textContent = Number.isFinite(cycle.positionError) ? `${cycle.positionError.toFixed(3)} m` : '—';
+  stationBottomHeight.textContent = cycle.bottomHeight ? `${cycle.bottomHeight.toFixed(3)} m` : '—';
+  stationBoxRotation.textContent = cycle.rotation.toArray().slice(0, 3).map((value) => value.toFixed(2)).join(', ');
+  stationState.textContent = cycle.state;
+  stationStart.disabled = cycle.state !== 'IDLE' && cycle.state !== 'COMPLETE';
+});
 
 const jointControls = new JointControls({
   container: document.querySelector('[data-joints-list]'),
@@ -145,6 +195,7 @@ function handleAssetLoaded(asset) {
   commandsPanel.setRig(asset.rig, asset.player);
   rigEditor.setAsset(asset);
   assetSelectionPanel.update(asset);
+  if (stationMode && asset.config.id === 'abb_irb6760') void stationScene.show(asset);
 }
 
 const assetManager = new AssetManager({
@@ -161,7 +212,7 @@ const assetManager = new AssetManager({
 
 const assetSelectionPanel = new AssetSelectionPanel({
   assetManager,
-  selectElement: document.querySelector('[data-asset-select]'),
+  selectElement: assetSelect,
   infoTitle: document.querySelector('[data-asset-info-title]'),
   nameElement: document.querySelector('[data-asset-name]'),
   typeElement: document.querySelector('[data-asset-type]'),
@@ -172,9 +223,41 @@ const assetSelectionPanel = new AssetSelectionPanel({
   pauseButton: document.querySelector('[data-animation-pause]'),
   restartButton: document.querySelector('[data-animation-restart]'),
   messageElement: document.querySelector('[data-asset-message]'),
+  onStationSelect: openStation,
 });
 
 assetManager.select('abb_irb6760');
+
+async function openStation() {
+  stationMode = true;
+  assetSelectionCard.hidden = true;
+  await assetManager.select('abb_irb6760');
+  if (activeAsset?.config.id === 'abb_irb6760') await stationScene.show(activeAsset);
+  stationCard.hidden = false;
+  assetSelect.value = 'station';
+}
+
+function closeStation() {
+  stationMode = false;
+  const robot = stationScene.hide();
+  if (robot && activeAsset) {
+    robot.position.set(0, 0, 0);
+    robot.rotation.set(0, 0, 0);
+    assetManager.applyPlacement(activeAsset);
+    sceneManager.add(robot);
+    cameraManager.frameObject(robot, controls);
+  }
+  stationCard.hidden = true;
+  assetSelectionCard.hidden = false;
+  assetSelect.value = activeAsset?.config.id || 'abb_irb6760';
+  stationDebug.checked = false;
+}
+
+stationExit.addEventListener('click', closeStation);
+stationDebug.addEventListener('change', () => stationScene.setDebug(stationDebug.checked));
+stationStart.addEventListener('click', () => stationScene.startCycle());
+stationReset.addEventListener('click', () => stationScene.resetCycle());
+stationSpeed.addEventListener('change', () => stationScene.setCycleSpeed(Number(stationSpeed.value)));
 
 function handleResize() {
   cameraManager.updateAspectRatio();
@@ -190,6 +273,7 @@ function render() {
   objectMotionControls.update();
   rigEditor.update();
   assetManager.update(deltaTime);
+  stationScene.update(deltaTime);
   visualizationManager?.update(deltaTime);
   controls.update();
   rendererManager.renderer.render(sceneManager.scene, cameraManager.camera);

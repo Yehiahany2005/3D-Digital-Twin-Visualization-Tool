@@ -23,7 +23,7 @@
 
       <section class="workspace" aria-label="Digital twin workspace">
         <aside class="sidebar" aria-label="Asset controls and information">
-          <details class="sidebar-card asset-selection-card" open>
+          <details class="sidebar-card asset-selection-card" data-asset-selection-card open>
             <summary><span class="card-title"><i data-lucide="box" aria-hidden="true"></i>Digital Twin Asset</span><span class="summary-chevron" aria-hidden="true"></span></summary>
             <div class="card-content asset-selection-content">
               <label for="asset-select">Select Asset</label>
@@ -32,6 +32,35 @@
               <button type="button" class="import-button" data-asset-import-button>Import 3D / CAD File</button>
               <small class="import-hint">STEP, IGES, GLB, glTF, STL, OBJ, FBX, 3MF</small>
               <p class="asset-status" data-asset-status role="status" hidden></p>
+            </div>
+          </details>
+
+          <details class="sidebar-card station-card" data-station-card hidden>
+            <summary><span class="card-title"><i data-lucide="move-3d" aria-hidden="true"></i>Station Scene</span><span class="summary-chevron" aria-hidden="true"></span></summary>
+            <div class="card-content">
+              <p class="editor-hint">ABB robot, procedural conveyor, and workpiece in a metre-based layout.</p>
+              <label class="station-debug-toggle"><input type="checkbox" data-station-debug /> Show reference frames</label>
+              <div class="station-actions">
+                <button type="button" class="primary-button" data-station-start>Start</button>
+                <button type="button" data-station-reset>Reset</button>
+              <label>Speed <select data-station-speed><option value="1">1×</option><option value="2">2×</option><option value="10">10× (debug)</option></select></label>
+              </div>
+              <dl class="station-status" aria-live="polite">
+                <div><dt>Conveyor</dt><dd data-station-conveyor-state>STOPPED</dd></div>
+                <div><dt>Robot State</dt><dd data-station-robot-state>Ready</dd></div>
+                <div><dt>Gripper State</dt><dd data-station-gripper-state>OPEN</dd></div>
+                <div><dt>Box State</dt><dd data-station-box-state>AT_PICKUP</dd></div>
+                <div><dt>Current Box</dt><dd data-station-box-number>0/27</dd></div>
+                <div><dt>TCP Position</dt><dd data-station-tcp-position>—</dd></div>
+                <div><dt>Box Position</dt><dd data-station-box-position>—</dd></div>
+                <div><dt>TCP → Box Distance</dt><dd data-station-distance>—</dd></div>
+                <div><dt>Stack Target</dt><dd data-station-stack-target>—</dd></div>
+                <div><dt>Position Error</dt><dd data-station-position-error>—</dd></div>
+                <div><dt>Bottom Height</dt><dd data-station-bottom-height>—</dd></div>
+                <div><dt>Box Rotation</dt><dd data-station-box-rotation>—</dd></div>
+                <div><dt>Current Station State</dt><dd data-station-state>IDLE</dd></div>
+              </dl>
+              <button type="button" class="import-button" data-station-exit>Back to Asset Selection</button>
             </div>
           </details>
 

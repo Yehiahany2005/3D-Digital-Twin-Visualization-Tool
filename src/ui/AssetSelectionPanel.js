@@ -4,7 +4,7 @@ import { IMPORT_ACCEPT, unsupportedFormatMessage } from '../loaders/ModelLoader.
 const NO_ANIMATIONS_MESSAGE = 'No embedded animations detected.';
 
 export class AssetSelectionPanel {
-  constructor({ assetManager, selectElement, infoTitle, nameElement, typeElement, animationCountElement, animationCard, animationSelect, playButton, pauseButton, restartButton, messageElement }) {
+  constructor({ assetManager, selectElement, infoTitle, nameElement, typeElement, animationCountElement, animationCard, animationSelect, playButton, pauseButton, restartButton, messageElement, onStationSelect }) {
     this.assetManager = assetManager;
     this.selectElement = selectElement;
     this.infoTitle = infoTitle;
@@ -18,12 +18,14 @@ export class AssetSelectionPanel {
     this.pauseButton = pauseButton;
     this.restartButton = restartButton;
     this.messageElement = messageElement;
+    this.onStationSelect = onStationSelect;
     this.importInput = document.querySelector('[data-asset-import]');
     this.importButton = document.querySelector('[data-asset-import-button]');
     this.statusElement = document.querySelector('[data-asset-status]');
     this.importInput.accept = IMPORT_ACCEPT;
 
     ASSET_REGISTRY.forEach((asset) => this.addOption(asset));
+    this.addOption({ id: 'station', name: 'Station' });
 
     this.importButton.addEventListener('click', () => this.importInput.click());
     this.importInput.addEventListener('change', () => {
@@ -35,7 +37,11 @@ export class AssetSelectionPanel {
     this.selectElement.addEventListener('change', async () => {
       this.setStatus(null);
       this.setLoading(true);
-      await this.assetManager.select(this.selectElement.value);
+      if (this.selectElement.value === 'station') {
+        await this.onStationSelect?.();
+      } else {
+        await this.assetManager.select(this.selectElement.value);
+      }
       this.setLoading(false);
     });
     this.animationSelect.addEventListener('change', () => this.assetManager.currentAsset?.animationController.select(this.animationSelect.value));
