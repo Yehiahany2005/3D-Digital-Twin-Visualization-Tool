@@ -694,8 +694,7 @@ canvas { display: block; }
 .button-row button:focus-visible,
 .joint-def button:focus-visible,
 .editor-field input:focus-visible,
-.editor-field select:focus-visible,
-.vector-field input:focus-visible {
+.editor-field select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -722,8 +721,7 @@ canvas { display: block; }
 .editor-field small { color: var(--subtle); }
 
 .editor-field input,
-.editor-field select,
-.vector-field input {
+.editor-field select {
   width: 100%;
   min-width: 0;
   min-height: 1.85rem;
@@ -736,15 +734,6 @@ canvas { display: block; }
   font-size: 0.7rem;
 }
 
-.vector-field {
-  display: grid;
-  grid-template-columns: 3.6rem repeat(3, minmax(0, 1fr));
-  align-items: center;
-  gap: 0.3rem;
-  color: var(--muted);
-  font-size: 0.64rem;
-}
-
 .range-fields {
   display: grid;
   gap: 0.35rem;
@@ -752,43 +741,12 @@ canvas { display: block; }
 
 .limit-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.35rem;
 }
 
 .range-fields[hidden],
 .speed-field[hidden] { display: none; }
-
-.editor-advanced { border-top: 1px solid var(--border-soft); }
-
-.sidebar-card .editor-advanced summary {
-  justify-content: flex-start;
-  gap: 0.45rem;
-  min-height: 2rem;
-  padding: 0;
-  border-bottom: 0;
-  color: var(--muted);
-  font-size: 0.66rem;
-  font-weight: 600;
-}
-
-.editor-advanced summary::before {
-  width: 5px;
-  height: 5px;
-  border-right: 1px solid currentColor;
-  border-bottom: 1px solid currentColor;
-  content: "";
-  transform: rotate(-45deg);
-  transition: transform 160ms ease;
-}
-
-.editor-advanced[open] summary::before { transform: rotate(45deg); }
-
-.editor-advanced-content {
-  display: grid;
-  gap: 0.45rem;
-  padding-bottom: 0.35rem;
-}
 
 .part-levels {
   display: grid;
@@ -894,42 +852,77 @@ canvas { display: block; }
 
 /* Animation setup */
 
+.anim-content { display: grid; gap: 0.6rem; }
+
+.anim-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 2px;
+  border: 1px solid #50545a;
+  border-radius: 4px;
+  background: #26282b;
+}
+
+.anim-tabs button {
+  min-height: 1.75rem;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.anim-tabs button span { color: var(--subtle); font-weight: 500; }
+.anim-tabs button:hover { color: var(--text); }
+
+.anim-tabs button.is-active {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: #dff8fb;
+}
+
+.anim-tabs button.is-active span { color: var(--accent); }
+
+.anim-panel { display: grid; gap: 0.45rem; }
+.anim-panel[hidden],
+.sequence-editor[hidden] { display: none; }
+.sequence-editor { display: grid; gap: 0.4rem; }
+
 .inline-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.35rem;
+  gap: 0.3rem;
 }
+
+.inline-form-3 { grid-template-columns: minmax(0, 1fr) auto auto; }
 
 .inline-form input,
 .inline-form select,
-.motion-item input,
 .step-row select,
-.step-row input {
+.step-row input,
+.pose-rename {
   width: 100%;
   min-width: 0;
-  min-height: 1.85rem;
-  padding: 0.3rem 0.45rem;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.45rem;
   border: 1px solid #50545a;
   border-radius: 3px;
   background: #34373b;
   color: var(--text);
   font: inherit;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
 }
-
-.motion-item input {
-  border-color: transparent;
-  background: transparent;
-  font-weight: 600;
-}
-
-.motion-item input:hover { border-color: #50545a; }
 
 .inline-form button,
-.motion-item button,
-.step-row button {
-  min-height: 1.85rem;
-  padding: 0.3rem 0.5rem;
+.pose-chip button,
+.step-row button,
+.anim-toolbar button,
+.anim-footer button {
+  min-height: 1.75rem;
+  padding: 0.25rem 0.5rem;
   border: 1px solid #50545a;
   border-radius: 3px;
   background: #34373b;
@@ -940,85 +933,143 @@ canvas { display: block; }
   font-weight: 600;
 }
 
-.inline-form .primary-button {
+.inline-form .primary-button,
+.anim-toolbar .primary-button {
   border-color: var(--accent);
   background: rgba(105, 199, 211, 0.22);
   color: #dff8fb;
 }
 
 .inline-form button:hover:not(:disabled),
-.motion-item button:hover:not(:disabled),
-.step-row button:hover:not(:disabled) {
+.pose-chip button:hover:not(:disabled),
+.step-row button:hover:not(:disabled),
+.anim-toolbar button:hover:not(:disabled),
+.anim-footer button:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
 
-.inline-form :is(input, select, button):focus-visible,
-.motion-item :is(input, button):focus-visible,
-.step-row :is(input, select, button):focus-visible,
-.checkbox-field input:focus-visible {
+.anim-content :is(input, select, button):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
-.inline-form :is(input, select, button):disabled,
-.motion-item button:disabled,
-.step-row button:disabled,
+.anim-content :is(input, select, button):disabled { cursor: default; opacity: 0.42; }
 .button-row button:disabled { cursor: default; opacity: 0.42; }
 
-.motion-list,
-.step-list {
+.loop-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0 0.45rem;
+  border: 1px solid #50545a;
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.loop-toggle:has(input:checked) { border-color: var(--accent); color: #dff8fb; }
+.loop-toggle input { margin: 0; accent-color: var(--accent); }
+
+/* Poses: two-column chips. */
+.pose-grid {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.3rem;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.motion-item {
+.pose-grid .empty-state { grid-column: 1 / -1; }
+
+.pose-chip {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) 1.35rem 1.35rem;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.2rem 0.25rem;
-  border: 1px solid var(--border-soft);
-  border-radius: 3px;
+  gap: 2px;
+  min-width: 0;
 }
 
-.sequence-editor { display: grid; gap: 0.45rem; }
-.sequence-editor[hidden] { display: none; }
+.pose-chip button { padding: 0.25rem 0; }
 
-.checkbox-field {
+.pose-chip .pose-go {
+  overflow: hidden;
+  padding: 0.25rem 0.45rem;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pose-chip .pose-go + button,
+.pose-chip button:last-child {
+  border-color: transparent;
+  background: transparent;
+  color: var(--subtle);
+}
+
+.pose-chip button:last-child:hover:not(:disabled) { border-color: #8a4b4b; background: rgba(214, 102, 102, 0.1); color: #f0b4b4; }
+
+/* Sequence steps: one compact row each; long sequences scroll. */
+.steps-head {
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--muted);
-  font-size: 0.66rem;
+  justify-content: space-between;
+  color: var(--subtle);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
 
-.checkbox-field input { margin: 0; accent-color: var(--accent); }
+.steps-head span:last-child { color: var(--accent); letter-spacing: 0; text-transform: none; }
+
+.step-list {
+  display: grid;
+  gap: 0.25rem;
+  max-height: 13.5rem;
+  margin: 0;
+  padding: 0 0.2rem 0 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
 
 .step-row {
   display: grid;
-  grid-template-columns: 1rem minmax(0, 1fr) 3.3rem 0.5rem repeat(3, 1.6rem);
+  grid-template-columns: 0.9rem minmax(0, 1fr) 3.1rem 0.45rem repeat(3, 1.4rem);
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.2rem;
 }
 
-.step-row button { padding: 0.3rem 0; }
+.step-row button { padding: 0.25rem 0; }
 
 .step-number,
 .step-unit {
   color: var(--subtle);
-  font-size: 0.64rem;
+  font-size: 0.62rem;
   font-variant-numeric: tabular-nums;
 }
 
 .step-wait {
   padding-left: 0.45rem;
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-style: italic;
 }
 
 .step-row input::placeholder { color: var(--subtle); font-style: italic; }
+
+.anim-toolbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.anim-footer {
+  display: grid;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border-soft);
+}

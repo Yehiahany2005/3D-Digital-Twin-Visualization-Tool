@@ -7,6 +7,7 @@ import { formatJointValue } from './JointControls.js';
 // the joints, so they are saved and shared with the rig file.
 
 const MIN_STEP_SECONDS = 0.1;
+const MESSAGE_SECONDS = 4;
 
 function slug(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'item';
@@ -44,8 +45,10 @@ export class AnimationEditorPanel {
     this.asset = null;
     this.selectedId = null;
     this.exporting = false;
+    this.tab = 'poses';
     this.query = (selector) => card.querySelector(selector);
     this.bindEvents();
+    this.setTab(this.tab);
   }
 
   get rig() {
@@ -61,6 +64,9 @@ export class AnimationEditorPanel {
   }
 
   bindEvents() {
+    this.card.querySelectorAll('[data-anim-tab]').forEach((tab) => {
+      tab.addEventListener('click', () => this.setTab(tab.dataset.animTab));
+    });
     const poseName = this.query('[data-pose-name]');
     this.query('[data-save-pose]').addEventListener('click', () => this.savePose(poseName.value));
     poseName.addEventListener('keydown', (event) => {
@@ -109,7 +115,19 @@ export class AnimationEditorPanel {
   commit(motions) {
     this.rig.setMotions(motions);
     const saved = saveRig(this.asset.config, this.rig.definition);
-    if (!saved) this.query('[data-animation-save-state]').textContent = "Couldn't save in this browser. Use Joint Setup → Export to keep your poses and sequences.";
+    if (!saved) this.showMessage("Couldn't save in this browser. Use Joint Setup → Export to keep your poses and sequences.", true);
+  }
+
+  setTab(tab) {
+    this.tab = tab;
+    this.card.querySelectorAll('[data-anim-tab]').forEach((button) => {
+      const active = button.dataset.animTab === tab;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
+    this.card.querySelectorAll('[data-anim-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.animPanel !== tab;
+    });
   }
 
   editSequence(change) {
@@ -140,24 +158,43 @@ export class AnimationEditorPanel {
     const poses = this.rig.poses;
     const name = nameText.trim() || `Pose ${poses.length + 1}`;
     if (poses.some((pose) => pose.name.toLowerCase() === name.toLowerCase())) {
-      this.showMessage(`There is already a pose called "${name}". Use its Update button to replace it, or pick another name.`, true);
+      this.showMessage(`There is already a pose called "${name}". Use its ↻ button to replace it, or pick another name.`, true);
       return;
     }
     const pose = { id: uniqueId(slug(name), poses), name, values: this.currentValues() };
     this.commit({ poses: [...poses, pose] });
     this.query('[data-pose-name]').value = '';
-    this.showMessage(`Pose "${name}" saved.${this.sequence ? ' Add it to the sequence with "+ Move to pose".' : ''}`);
+    this.showMessage(`Pose "${name}" saved.`);
   }
 
-  renamePose(id, input) {
-    const name = input.value.trim();
-    const current = this.rig.poses.find((pose) => pose.id === id);
-    if (!name || this.rig.poses.some((pose) => pose.id !== id && pose.name.toLowerCase() === name.toLowerCase())) {
-      input.value = current.name;
-      if (name) this.showMessage(`There is already a pose called "${name}".`, true);
-      return;
-    }
-    this.commit({ poses: this.rig.poses.map((pose) => (pose.id === id ? { ...pose, name } : pose)) });
+  // Swaps the pose's button for a text field; Enter or leaving the field saves, Escape cancels.
+  startRename(pose, label) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = pose.name;
+    input.className = 'pose-rename';
+    input.setAttribute('aria-label', `New name for ${pose.name}`);
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      const name = input.value.trim();
+      const taken = this.rig.poses.some((other) => other.id !== pose.id && other.name.toLowerCase() === name.toLowerCase());
+      if (save && taken) this.showMessage(`There is already a pose called "${name}".`, true);
+      if (save && name && !taken && name !== pose.name) {
+        this.commit({ poses: this.rig.poses.map((item) => (item.id === pose.id ? { ...item, name } : item)) });
+      } else {
+        input.replaceWith(label);
+      }
+    };
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') finish(true);
+      if (event.key === 'Escape') finish(false);
+    });
+    input.addEventListener('blur', () => finish(true));
+    label.replaceWith(input);
+    input.focus();
+    input.select();
   }
 
   updatePose(id) {
@@ -209,7 +246,7 @@ export class AnimationEditorPanel {
     this.selectedId = sequence.id;
     this.commit({ sequences: [...sequences, sequence] });
     this.showMessage(this.rig.poses.length
-      ? `"${name}" created. Add steps with "+ Move to pose" and "+ Wait".`
+      ? `"${name}" created. Add steps with "+ Pose" and "+ Wait".`
       : `"${name}" created. Save some poses first, then add them as steps.`);
   }
 
@@ -282,34 +319,34 @@ export class AnimationEditorPanel {
   renderPoses() {
     const poses = this.rig?.poses || [];
     const canPose = Boolean(this.rig?.controllableJoints.length);
-    this.query('[data-pose-count]').textContent = poses.length ? `${poses.length} saved` : '';
+    this.query('[data-pose-count]').textContent = poses.length ? `${poses.length}` : '';
     this.query('[data-save-pose]').disabled = !canPose;
     this.query('[data-pose-name]').disabled = !canPose;
 
     const list = this.query('[data-pose-list]');
     list.replaceChildren();
     if (!canPose && !poses.length) {
-      list.appendChild(this.emptyItem('This model has no joints yet. Set them up in Joint Setup, then come back to pose them.'));
+      list.appendChild(this.emptyItem('No joints yet. Set them up in Joint Setup, then come back to pose them.'));
       return;
     }
     if (!poses.length) {
-      list.appendChild(this.emptyItem('No poses yet.'));
+      list.appendChild(this.emptyItem('Move the joints in the Joints panel, then save where they are as a pose.'));
       return;
     }
     poses.forEach((pose) => {
       const item = document.createElement('li');
-      item.className = 'motion-item';
-      const name = document.createElement('input');
-      name.type = 'text';
-      name.value = pose.name;
-      name.title = this.poseSummary(pose);
-      name.dataset.focusKey = `pose-${pose.id}`;
-      name.setAttribute('aria-label', `Name of pose ${pose.name}`);
-      name.addEventListener('change', () => this.renamePose(pose.id, name));
+      item.className = 'pose-chip';
+      const go = button(pose.name, null, (event) => {
+        // The second click of a double-click (rename) should not start another move.
+        if (event.detail < 2) this.goToPose(pose);
+      });
+      go.className = 'pose-go';
+      go.title = `Click to move here, double-click to rename.\n${this.poseSummary(pose)}`;
+      go.dataset.focusKey = `pose-${pose.id}`;
+      go.addEventListener('dblclick', () => this.startRename(pose, go));
       item.append(
-        name,
-        button('Go', `Move to ${pose.name}`, () => this.goToPose(pose)),
-        button('Update', `Replace ${pose.name} with the current joint positions`, () => this.updatePose(pose.id)),
+        go,
+        button('↻', `Update ${pose.name} to the current joint positions`, () => this.updatePose(pose.id)),
         button('✕', `Delete ${pose.name}`, () => this.deletePose(pose.id)),
       );
       list.appendChild(item);
@@ -328,6 +365,8 @@ export class AnimationEditorPanel {
     select.disabled = !sequences.length;
     this.query('[data-new-sequence]').disabled = !this.rig;
     this.query('[data-export-glb]').disabled = !sequences.length || this.exporting;
+    this.query('[data-delete-sequence]').disabled = !sequence;
+    this.query('[data-sequence-count]').textContent = sequences.length ? `${sequences.length}` : '';
 
     const editor = this.query('[data-sequence-editor]');
     editor.hidden = !sequence;
@@ -339,11 +378,11 @@ export class AnimationEditorPanel {
     const list = this.query('[data-step-list]');
     list.replaceChildren();
     const steps = sequence.steps || [];
-    if (!steps.length) list.appendChild(this.emptyItem('No steps yet. A sequence moves from pose to pose, with optional waits between.'));
+    if (!steps.length) list.appendChild(this.emptyItem('No steps yet. Add poses to move between, with optional waits.'));
     steps.forEach((step, index) => list.appendChild(this.createStepRow(step, index, steps.length, timeline.segments[index])));
 
     this.query('[data-sequence-total]').textContent = steps.length
-      ? `One run takes ${seconds(timeline.duration)}. Leave a move's time empty to go as fast as the joint speeds allow.`
+      ? `${steps.length} step${steps.length === 1 ? '' : 's'} · ${seconds(timeline.duration)}`
       : '';
   }
 
@@ -424,6 +463,9 @@ export class AnimationEditorPanel {
     message.hidden = !text;
     message.textContent = text || '';
     message.classList.toggle('is-error', isError);
+    // Confirmations fade on their own so they don't take up room; errors stay until the next action.
+    clearTimeout(this.messageTimer);
+    if (text && !isError) this.messageTimer = setTimeout(() => { message.hidden = true; }, MESSAGE_SECONDS * 1000);
   }
 
   // ---- Export --------------------------------------------------------------------
