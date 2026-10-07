@@ -8,7 +8,7 @@ export const LINK_COLOR = 0xb38cff;
 const DIM_COLOR = 0x111518;
 // How long a preview lingers after the pointer leaves, so moving across the small gap between
 // two buttons goes straight from one preview to the next instead of flashing back to normal.
-const PREVIEW_LINGER_MS = 250;
+const PREVIEW_LINGER_MS = 500;
 
 // Turns clicks on the viewport into raycast hits, ignoring drags (which orbit the camera).
 export class ViewportPicker {
