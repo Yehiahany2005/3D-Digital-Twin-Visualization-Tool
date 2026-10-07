@@ -65,6 +65,8 @@ export class RigEditorPanel {
     this.levels = [];
     this.pickMode = null;
     this.draft = null;
+    // Joints whose thread of mounted joints is folded away in the joint list.
+    this.collapsed = new Set();
     this.query = (selector) => card.querySelector(selector);
     this.field = (name) => card.querySelector(`[data-field="${name}"]`);
 
@@ -146,6 +148,8 @@ export class RigEditorPanel {
     asset.rig.content.traverse((object) => {
       if (object.isMesh && object.userData.partPath !== undefined) this.meshes.push(object);
     });
+    this.highlight.setModelMeshes(this.meshes);
+    this.collapsed.clear();
     this.selection = [];
     this.levels = [];
     this.resetForm();
@@ -267,6 +271,7 @@ export class RigEditorPanel {
     if (this.card.open) {
       this.outline.set(this.selection);
       this.highlight.setSelection(this.selection.flatMap((object) => this.meshesUnder(object)));
+      this.refreshLinked();
     } else {
       this.outline.clear();
       this.highlight.clear();
@@ -497,15 +502,48 @@ export class RigEditorPanel {
     this.query('[data-link-fields]').hidden = !linked;
     this.query('[data-limit-fields]').hidden = linked;
     this.query('[data-speed-field]').hidden = linked;
-    const followed = this.rig.jointsById.get(draft.linkJoint);
-    this.query('[data-target-status]').textContent = draft.target && followed
-      ? `Follows a point on "${followed.name}". Pick again to change it.`
-      : 'Click the point it should follow, e.g. the pin on the other part. The joint it belongs to is found for you.';
+    this.writeFollowStatus();
     this.card.querySelectorAll('[data-unit]').forEach((element) => { element.textContent = motion === 'prismatic' ? 'mm' : '°'; });
     this.query('[data-unit-speed]').textContent = motion === 'prismatic' ? 'mm/s' : '°/s';
     this.field('min').value = String(draft.min);
     this.field('max').value = String(draft.max);
     this.field('speed').value = String(draft.speed);
+  }
+
+  // The joint a follower follows, once its follow point is picked.
+  get followedJoint() {
+    const { draft } = this;
+    const linked = draft && (draft.type === 'aim' || draft.type === 'stretch');
+    return linked && draft.target ? this.rig?.jointsById.get(draft.linkJoint) || null : null;
+  }
+
+  writeFollowStatus() {
+    const followed = this.followedJoint;
+    const status = this.query('[data-target-status]');
+    status.classList.toggle('is-set', Boolean(followed));
+    this.query('[data-pick-target]').textContent = followed ? 'Change follow point' : 'Pick follow point';
+    if (!followed) {
+      status.textContent = 'Click "Pick follow point", then click the pin or point on the part it should follow.';
+    } else {
+      const swatch = document.createElement('span');
+      swatch.className = 'follow-swatch';
+      swatch.setAttribute('aria-hidden', 'true');
+      const text = document.createElement('span');
+      text.append('Follows ');
+      const name = document.createElement('strong');
+      name.textContent = followed.name;
+      text.append(name);
+      const note = document.createElement('small');
+      note.textContent = 'Its parts are violet on the model; the dashed line runs to the follow point.';
+      status.replaceChildren(swatch, text, note);
+    }
+    this.refreshLinked();
+  }
+
+  // Tints the followed joint's parts so it is obvious what the follower is tied to.
+  refreshLinked() {
+    const followed = this.card.open ? this.followedJoint : null;
+    this.highlight.setLinked(followed ? followed.parts.flatMap((part) => this.meshesUnder(part)) : []);
   }
 
   showMessage(text, isError = false) {
@@ -692,8 +730,8 @@ export class RigEditorPanel {
     this.showMessage(`Joint "${target.name}" deleted.`);
   }
 
-  // Joints as a tree, each under the joint it is mounted on: [{ joint, depth }].
-  jointTree() {
+  // Joints keyed by the joint they are mounted on (null for the base), in rig order.
+  jointChildren() {
     const ids = new Set(this.rig.joints.map((joint) => joint.id));
     const children = new Map();
     this.rig.joints.forEach((joint) => {
@@ -701,13 +739,7 @@ export class RigEditorPanel {
       if (!children.has(parent)) children.set(parent, []);
       children.get(parent).push(joint);
     });
-    const ordered = [];
-    const visit = (parent, depth) => (children.get(parent) || []).forEach((joint) => {
-      ordered.push({ joint, depth });
-      visit(joint.id, depth + 1);
-    });
-    visit(null, 0);
-    return ordered;
+    return children;
   }
 
   renderJointList() {
@@ -740,9 +772,50 @@ export class RigEditorPanel {
       list.appendChild(this.emptyJointItem('No joints yet. Select parts above, set the axis, then create a joint.'));
       return;
     }
-    const rows = this.jointTree().filter(({ joint }) => !filter || joint.name.toLowerCase().includes(filter));
-    if (!rows.length) list.appendChild(this.emptyJointItem(`No joint matches "${filterInput.value.trim()}".`));
-    rows.forEach(({ joint, depth }) => list.appendChild(this.createJointRow(joint, filter ? 0 : depth)));
+
+    // Searching shows a flat list of matches; otherwise joints are threads, like nested comments.
+    if (filter) {
+      const matches = joints.filter((joint) => joint.name.toLowerCase().includes(filter));
+      if (!matches.length) list.appendChild(this.emptyJointItem(`No joint matches "${filterInput.value.trim()}".`));
+      matches.forEach((joint) => {
+        const item = document.createElement('li');
+        item.className = 'joint-node';
+        item.appendChild(this.createJointRow(joint, 0));
+        list.appendChild(item);
+      });
+      return;
+    }
+    const children = this.jointChildren();
+    (children.get(null) || []).forEach((joint) => list.appendChild(this.createJointNode(joint, children)));
+  }
+
+  createJointNode(joint, children) {
+    const item = document.createElement('li');
+    item.className = 'joint-node';
+    const mounted = children.get(joint.id) || [];
+    const collapsed = this.collapsed.has(joint.id);
+    item.appendChild(this.createJointRow(joint, collapsed ? this.countDescendants(joint.id, children) : 0));
+    if (!mounted.length || collapsed) return item;
+
+    // The thread line runs down from this joint to each joint mounted on it; clicking it folds the thread.
+    const line = document.createElement('button');
+    line.type = 'button';
+    line.className = 'joint-thread-line';
+    line.title = `Fold the joints mounted on ${joint.name}`;
+    line.setAttribute('aria-label', `Fold the joints mounted on ${joint.name}`);
+    line.addEventListener('click', () => {
+      this.collapsed.add(joint.id);
+      this.renderJointList();
+    });
+    const thread = document.createElement('ul');
+    thread.className = 'joint-thread';
+    mounted.forEach((child) => thread.appendChild(this.createJointNode(child, children)));
+    item.append(line, thread);
+    return item;
+  }
+
+  countDescendants(id, children) {
+    return (children.get(id) || []).reduce((total, child) => total + 1 + this.countDescendants(child.id, children), 0);
   }
 
   emptyJointItem(text) {
@@ -752,7 +825,8 @@ export class RigEditorPanel {
     return item;
   }
 
-  createJointRow(joint, depth) {
+  // folded: how many joints are hidden under this one (shown as a "+N" button to unfold).
+  createJointRow(joint, folded) {
     const type = uiType(joint.definition);
     const parent = joint.definition.parent ? this.rig.jointsById.get(joint.definition.parent)?.name : 'base';
     const carried = this.rig.joints.filter((other) => other.definition.parent === joint.id).map((other) => other.name);
@@ -760,11 +834,9 @@ export class RigEditorPanel {
       ? `carries ${carried.join(', ')}`
       : `${joint.parts.length} part${joint.parts.length === 1 ? '' : 's'}`;
 
-    const item = document.createElement('li');
-    item.className = 'joint-def';
-    item.classList.toggle('is-active', joint.id === this.draft?.editingId);
-    item.style.setProperty('--depth', String(Math.min(depth, 6)));
-    item.classList.toggle('is-nested', depth > 0);
+    const row = document.createElement('div');
+    row.className = 'joint-def';
+    row.classList.toggle('is-active', joint.id === this.draft?.editingId);
 
     const edit = document.createElement('button');
     edit.type = 'button';
@@ -782,8 +854,8 @@ export class RigEditorPanel {
 
     // Hovering a row lights up that joint's parts on the model.
     const meshes = () => joint.parts.flatMap((part) => this.meshesUnder(part));
-    item.addEventListener('pointerenter', () => this.highlight.setPreview(meshes()));
-    item.addEventListener('pointerleave', () => this.highlight.setPreview([]));
+    row.addEventListener('pointerenter', () => this.highlight.setPreview(meshes()));
+    row.addEventListener('pointerleave', () => this.highlight.setPreview([]));
 
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -793,8 +865,22 @@ export class RigEditorPanel {
     remove.setAttribute('aria-label', `Delete ${joint.name}`);
     remove.addEventListener('click', () => this.deleteJoint(joint.id));
 
-    item.append(edit, remove);
-    return item;
+    row.appendChild(edit);
+    if (folded) {
+      const unfold = document.createElement('button');
+      unfold.type = 'button';
+      unfold.className = 'joint-def-unfold';
+      unfold.textContent = `+${folded}`;
+      unfold.title = `Show the ${folded} joint${folded === 1 ? '' : 's'} mounted on ${joint.name}`;
+      unfold.setAttribute('aria-label', unfold.title);
+      unfold.addEventListener('click', () => {
+        this.collapsed.delete(joint.id);
+        this.renderJointList();
+      });
+      row.appendChild(unfold);
+    }
+    row.appendChild(remove);
+    return row;
   }
 
   // ---- Rig file -----------------------------------------------------------------

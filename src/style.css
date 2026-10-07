@@ -842,8 +842,13 @@ canvas { display: block; }
 .joint-filter[hidden] { display: none; }
 .joint-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* Joint tree: one slim row per joint, indented under its parent; the list scrolls on its own. */
+/* Joint threads: one slim row per joint. Joints mounted on another branch out of it through a
+   line that drops from its icon and curves into each child, like nested comments. */
 .joint-defs {
+  --thread-x: 0.85rem;   /* centre of a row's icon */
+  --elbow: 0.6rem;       /* how far a child sits right of its parent's line */
+  --row-mid: 0.8rem;     /* half a row's height */
+  --thread: #4a4f55;
   display: grid;
   gap: 2px;
   max-height: 15rem;
@@ -855,17 +860,64 @@ canvas { display: block; }
   scrollbar-color: var(--border) transparent;
 }
 
-.joint-def {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 1.5rem;
-  align-items: center;
-  gap: 2px;
-  margin-left: calc(var(--depth, 0) * 0.65rem);
-  border-left: 1px solid transparent;
-  border-radius: 3px;
+.joint-node { position: relative; }
+
+.joint-thread {
+  margin: 0 0 0 var(--thread-x);
+  padding: 0 0 0 var(--elbow);
+  list-style: none;
 }
 
-.joint-def.is-nested { border-left-color: var(--border-soft); }
+.joint-thread > .joint-node::before,
+.joint-thread > .joint-node:not(:last-child)::after {
+  position: absolute;
+  left: calc(-1 * var(--elbow));
+  top: 0;
+  border-left: 1.5px solid var(--thread);
+  content: "";
+  pointer-events: none;
+  transition: border-color 120ms ease;
+}
+
+/* The curve into each child... */
+.joint-thread > .joint-node::before {
+  width: calc(var(--elbow) - 0.1rem);
+  height: var(--row-mid);
+  border-bottom: 1.5px solid var(--thread);
+  border-bottom-left-radius: 0.5rem;
+}
+
+/* ...and the line carrying on to the next sibling. */
+.joint-thread > .joint-node:not(:last-child)::after { bottom: 0; }
+
+/* Clicking a thread line folds it. */
+.joint-thread-line {
+  position: absolute;
+  z-index: 1;
+  top: calc(var(--row-mid) * 2);
+  bottom: 0;
+  left: calc(var(--thread-x) - 0.35rem);
+  width: 0.7rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.joint-node:has(> .joint-thread-line:hover) > .joint-thread > .joint-node::before,
+.joint-node:has(> .joint-thread-line:hover) > .joint-thread > .joint-node::after,
+.joint-node:has(> .joint-thread-line:focus-visible) > .joint-thread > .joint-node::before,
+.joint-node:has(> .joint-thread-line:focus-visible) > .joint-thread > .joint-node::after { border-color: var(--accent); }
+
+.joint-thread-line:focus-visible { outline: none; }
+
+.joint-def {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 1.5rem;
+  align-items: center;
+  gap: 2px;
+  border-radius: 3px;
+}
 
 .joint-def button {
   min-height: 1.6rem;
@@ -900,6 +952,17 @@ canvas { display: block; }
   text-align: center;
 }
 
+.joint-def .joint-def-unfold {
+  min-height: 1.2rem;
+  padding: 0 0.35rem;
+  border-color: #4c6469;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.6rem;
+  font-weight: 600;
+}
+
 .joint-def:hover { background: #34373b; }
 .joint-def-name:hover { color: #dff8fb; }
 .joint-def-delete { color: var(--subtle) !important; }
@@ -910,6 +973,45 @@ canvas { display: block; }
 .joint-def.is-active .joint-def-name { border-color: var(--accent); color: #dff8fb; font-weight: 600; }
 
 .joint-def button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Follow point: a clear badge naming the joint followed, in the same violet as its parts on the model. */
+.follow-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.45rem;
+  color: var(--subtle);
+  font-size: 0.66rem;
+  line-height: 1.45;
+}
+
+.follow-status:not(.is-set) { display: block; }
+
+.follow-status.is-set {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid rgba(179, 140, 255, 0.65);
+  border-radius: 4px;
+  background: rgba(179, 140, 255, 0.12);
+  color: #e4d8ff;
+  font-size: 0.74rem;
+}
+
+.follow-status strong { color: #fff; font-weight: 700; }
+
+.follow-status small {
+  grid-column: 2;
+  color: #b9a8dd;
+  font-size: 0.62rem;
+}
+
+.follow-swatch {
+  grid-row: span 2;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: #b38cff;
+  box-shadow: 0 0 0 3px rgba(179, 140, 255, 0.25);
+}
 
 .joint-def-warnings { color: #f0c58a; font-size: 0.64rem; line-height: 1.4; }
 .joint-def-warnings summary { cursor: pointer; font-weight: 600; }

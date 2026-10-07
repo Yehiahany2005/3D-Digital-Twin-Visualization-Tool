@@ -3,6 +3,9 @@ import * as THREE from 'three';
 const CLICK_TOLERANCE_PX = 5;
 const ACCENT = 0x69c7d3;
 const TARGET_COLOR = 0xf2b84b;
+// Parts of the joint a follower (cylinder, rod) follows.
+export const LINK_COLOR = 0xb38cff;
+const DIM_COLOR = 0x111518;
 
 // Turns clicks on the viewport into raycast hits, ignoring drags (which orbit the camera).
 export class ViewportPicker {
@@ -78,27 +81,46 @@ export class SelectionOutline {
   }
 }
 
-// Tints meshes so it is clear exactly what a selection or group contains: the
-// selection in the accent colour, a previewed group in amber drawn through the model.
+// Tints meshes so it is clear exactly what a selection or group contains: the selection in the
+// accent colour, the parts a follower follows in violet, and a previewed group in amber. While a
+// group is previewed everything outside it is dimmed, so a piece left out stands out even when it
+// sits among the group's parts; a faint see-through amber still shows the group where it is hidden.
 export class PartHighlight {
   constructor(scene) {
     this.scene = scene;
+    this.modelMeshes = [];
     this.layers = {
-      selection: { material: tintMaterial(ACCENT, 0.3, true), overlays: [] },
-      preview: { material: tintMaterial(TARGET_COLOR, 0.5, false), overlays: [] },
+      selection: { material: tintMaterial(ACCENT, 0.3, true), order: 997, overlays: [] },
+      linked: { material: tintMaterial(LINK_COLOR, 0.55, true), order: 998, overlays: [] },
+      dim: { material: tintMaterial(DIM_COLOR, 0.75, true), order: 999, overlays: [] },
+      preview: { material: tintMaterial(TARGET_COLOR, 0.65, true), order: 1000, overlays: [] },
+      previewXray: { material: tintMaterial(TARGET_COLOR, 0.14, false), order: 1001, overlays: [] },
     };
+  }
+
+  // Every mesh of the current model, so a preview can dim what it leaves out.
+  setModelMeshes(meshes) {
+    this.modelMeshes = meshes;
   }
 
   setSelection(meshes) {
     this.fill(this.layers.selection, meshes);
   }
 
+  setLinked(meshes) {
+    this.fill(this.layers.linked, meshes);
+  }
+
   setPreview(meshes) {
+    const included = new Set(meshes);
     this.fill(this.layers.preview, meshes);
+    this.fill(this.layers.previewXray, meshes);
+    this.fill(this.layers.dim, meshes.length ? this.modelMeshes.filter((mesh) => !included.has(mesh)) : []);
   }
 
   clear() {
     this.setSelection([]);
+    this.setLinked([]);
     this.setPreview([]);
   }
 
@@ -108,7 +130,7 @@ export class PartHighlight {
     layer.overlays = meshes.filter((mesh) => !mesh.isSkinnedMesh && !mesh.isInstancedMesh).map((mesh) => {
       const overlay = new THREE.Mesh(mesh.geometry, layer.material);
       overlay.matrixAutoUpdate = false;
-      overlay.renderOrder = layer === this.layers.preview ? 1000 : 998;
+      overlay.renderOrder = layer.order;
       overlay.raycast = () => {};
       this.scene.add(overlay);
       return { overlay, mesh };
@@ -158,7 +180,13 @@ export class JointGizmo {
     this.pivot = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), overlayMaterial(ACCENT));
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.03, 8, 48), overlayMaterial(ACCENT));
     this.target = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), overlayMaterial(TARGET_COLOR));
-    this.group.add(this.arrow, this.pivot, this.ring, this.target);
+    // Dashed line from the pivot to the follow point, so the link reads at a glance.
+    this.link = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineDashedMaterial({ color: TARGET_COLOR, depthTest: false, transparent: true }),
+    );
+    this.link.frustumCulled = false;
+    this.group.add(this.arrow, this.pivot, this.ring, this.target, this.link);
     this.group.traverse((object) => { object.renderOrder = 1000; });
     scene.add(this.group);
   }
@@ -177,9 +205,17 @@ export class JointGizmo {
     this.ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction3);
     this.ring.scale.setScalar(size * 0.08);
     this.target.visible = Boolean(target);
+    this.link.visible = Boolean(target);
     if (target) {
       this.target.position.copy(target);
-      this.target.scale.setScalar(size * 0.015);
+      this.target.scale.setScalar(size * 0.02);
+      const positions = this.link.geometry.attributes.position;
+      positions.setXYZ(0, point.x, point.y, point.z);
+      positions.setXYZ(1, target.x, target.y, target.z);
+      positions.needsUpdate = true;
+      this.link.material.dashSize = size * 0.02;
+      this.link.material.gapSize = size * 0.012;
+      this.link.computeLineDistances();
     }
     this.group.visible = true;
   }
