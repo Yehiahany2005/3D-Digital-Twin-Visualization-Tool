@@ -645,6 +645,8 @@ canvas { display: block; }
   border-radius: 3px;
 }
 
+.editor-subsection[hidden] { display: none; }
+
 .part-chips {
   display: flex;
   flex-wrap: wrap;
