@@ -4,6 +4,10 @@ import { createProceduralWorker } from './ProceduralWorker.js';
 const GRIP_TOLERANCE = 0.035;
 const CONVEYOR_SPEED = 0.7;
 const TOOL_OFFSET = new THREE.Vector3(0, -0.275, 0);
+// Fork height above the wrap deck once the pallet is released: forks drop
+// clear of the deck boards but stay above the pallet's bottom boards.
+const FORK_RELEASE_HEIGHT = 0.015;
+const FORK_WITHDRAW_CLEARANCE = 0.6;
 
 function lerpPose(from, to, progress) {
   return Object.fromEntries(Object.keys(to).map((id) => [
@@ -454,6 +458,37 @@ export class StationCycle {
     this.stationRoot.attach(this.cargo);
   }
 
+  seatCargoOnWrapDeck(deckHeight) {
+    const target = this.wrapMachine.root.localToWorld(new THREE.Vector3(0, deckHeight, 0));
+    const palletWorld = this.pallet.root.getWorldPosition(new THREE.Vector3());
+    const cargoWorld = this.cargo.getWorldPosition(new THREE.Vector3()).add(target.sub(palletWorld));
+    this.cargo.position.copy(this.cargo.parent.worldToLocal(cargoWorld));
+    this.cargo.updateMatrixWorld(true);
+  }
+
+  getForkBounds() {
+    this.worker.root.updateMatrixWorld(true);
+    return new THREE.Box3().setFromObject(this.worker.forks);
+  }
+
+  /** Back the jack out along its fork axis until the fork tips clear the pallet. */
+  getClearWithdrawPose() {
+    const pose = this.getWorkerPose();
+    const palletBounds = new THREE.Box3().setFromObject(this.pallet.root);
+    const forkBounds = this.getForkBounds();
+    const travel = forkBounds.max.x - (palletBounds.min.x - FORK_WITHDRAW_CLEARANCE);
+    const target = { ...this.layout.outbound.workerWithdraw };
+    target.x = Math.min(target.x, pose.x - Math.max(travel, 0));
+    return target;
+  }
+
+  assertToolClearOfPallet() {
+    const palletBounds = new THREE.Box3().setFromObject(this.pallet.root);
+    if (this.getForkBounds().intersectsBox(palletBounds)) {
+      console.error('Pallet jack forks still intersect the pallet after withdrawal.');
+    }
+  }
+
   applyOutboundTween(progress) {
     const tween = this.outboundTween;
     if (!tween || tween.kind === 'hold') return;
@@ -470,6 +505,7 @@ export class StationCycle {
     const finished = this.state;
     const durations = this.layout.outbound.durations;
     const lift = this.layout.outbound.liftHeight;
+    const finishedTween = this.outboundTween;
     this.outboundTween = null;
 
     if (finished === 'WORKER_SPAWN') {
@@ -516,14 +552,32 @@ export class StationCycle {
     } else if (finished === 'JACK_LOWER') {
       const deckHeight = this.wrapMachine?.deckHeight ?? this.layout.wrapMachine?.deckHeight ?? 0;
       this.worker.setForkHeight(deckHeight + 0.045);
+      // Pallet is resting on the turntable: release it and seat it exactly on center.
       this.detachCargoToStation();
+      this.seatCargoOnWrapDeck(deckHeight);
+      this.beginOutboundTween('JACK_RELEASE', {
+        kind: 'fork',
+        from: this.worker.getForkHeight(),
+        to: deckHeight + FORK_RELEASE_HEIGHT,
+      }, durations.release, { box: 'AT WRAPPER' });
+    } else if (finished === 'JACK_RELEASE') {
+      const deckHeight = this.wrapMachine?.deckHeight ?? this.layout.wrapMachine?.deckHeight ?? 0;
+      this.worker.setForkHeight(deckHeight + FORK_RELEASE_HEIGHT);
       this.beginOutboundTween('WORKER_WITHDRAW', {
         kind: 'worker',
         from: this.getWorkerPose(),
-        to: { ...this.layout.outbound.workerWithdraw },
+        to: this.getClearWithdrawPose(),
       }, durations.withdraw, { box: 'AT WRAPPER' });
     } else if (finished === 'WORKER_WITHDRAW') {
-      this.applyWorkerPose(this.layout.outbound.workerWithdraw);
+      this.applyWorkerPose(finishedTween.to);
+      this.beginOutboundTween('JACK_STOW', {
+        kind: 'fork',
+        from: this.worker.getForkHeight(),
+        to: 0.045,
+      }, durations.stow, { box: 'AT WRAPPER' });
+    } else if (finished === 'JACK_STOW') {
+      this.worker.setForkHeight(0.045);
+      this.assertToolClearOfPallet();
       this.wrapMachine.resetWrap();
       this.beginOutboundTween('WRAPPING', { kind: 'wrap' }, durations.wrap, { box: 'WRAPPING' });
     } else if (finished === 'WRAPPING') {

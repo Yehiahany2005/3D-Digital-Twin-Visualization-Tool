@@ -46,101 +46,127 @@ function mesh(geometry, material, name, parent) {
   return object;
 }
 
-/** Rectangular perimeter path (XZ) matching the stack footprint + clearance. */
-function rectPerimeterPoints(halfX, halfZ, segmentsPerSide = 8) {
-  const corners = [
-    [halfX, -halfZ],
-    [halfX, halfZ],
-    [-halfX, halfZ],
-    [-halfX, -halfZ],
+/**
+ * One closed loop around the rectangular stack perimeter (XZ), corners included
+ * exactly so the film never rounds off into an oval. Each sample carries its
+ * arc-length position and the outward offset direction (corners push out on
+ * both axes so the offset loop stays a true rectangle).
+ */
+function rectPerimeterLoop(halfX, halfZ, maxSpacing = 0.05) {
+  const sides = [
+    { from: [halfX, -halfZ], to: [halfX, halfZ], normal: [1, 0] },
+    { from: [halfX, halfZ], to: [-halfX, halfZ], normal: [0, 1] },
+    { from: [-halfX, halfZ], to: [-halfX, -halfZ], normal: [-1, 0] },
+    { from: [-halfX, -halfZ], to: [halfX, -halfZ], normal: [0, -1] },
   ];
-  const points = [];
-  for (let side = 0; side < 4; side += 1) {
-    const [x0, z0] = corners[side];
-    const [x1, z1] = corners[(side + 1) % 4];
-    for (let i = 0; i < segmentsPerSide; i += 1) {
-      const t = i / segmentsPerSide;
-      points.push(new THREE.Vector3(
-        THREE.MathUtils.lerp(x0, x1, t),
-        0,
-        THREE.MathUtils.lerp(z0, z1, t),
-      ));
+  const samples = [];
+  let s = 0;
+  sides.forEach((side, index) => {
+    const previous = sides[(index + 3) % 4];
+    const length = Math.hypot(side.to[0] - side.from[0], side.to[1] - side.from[1]);
+    const steps = Math.max(1, Math.ceil(length / maxSpacing));
+    for (let i = 0; i < steps; i += 1) {
+      const t = i / steps;
+      const corner = i === 0;
+      samples.push({
+        x: THREE.MathUtils.lerp(side.from[0], side.to[0], t),
+        z: THREE.MathUtils.lerp(side.from[1], side.to[1], t),
+        s: s + t * length,
+        ox: corner ? side.normal[0] + previous.normal[0] : side.normal[0],
+        oz: corner ? side.normal[1] + previous.normal[1] : side.normal[1],
+        nx: side.normal[0],
+        nz: side.normal[1],
+      });
     }
-  }
-  return points;
+    s += length;
+  });
+  return { samples, perimeter: s };
 }
 
 /**
- * Open rectangular tube from y=0 to y=height, sized to the stack outer perimeter.
- * Built as a continuous wall strip — not a cylinder/ellipse.
+ * Stretch-film ribbon spiralling around the stack: a few base turns at the
+ * stack bottom, a constant-pitch rise (pitch < band height so passes overlap
+ * with no gaps), then top turns flush with the stack top. Vertices are ordered
+ * along the path so the wrap can be revealed with a draw range.
  */
-function createRectTubeGeometry(halfX, halfZ, height, segmentsPerSide = 8) {
-  const ring = rectPerimeterPoints(halfX, halfZ, segmentsPerSide);
-  const ringCount = ring.length;
-  const positions = [];
-  const normals = [];
-  const uvs = [];
-  const indices = [];
+function createSpiralFilm(halfX, halfZ, stackHeight, {
+  bandHeight,
+  pitch,
+  baseTurns = 1.5,
+  topTurns = 1.5,
+  layerGrowth = 0.001,
+} = {}) {
+  const { samples, perimeter } = rectPerimeterLoop(halfX, halfZ);
+  const riseHeight = Math.max(0, stackHeight - bandHeight);
+  const riseTurns = riseHeight / pitch;
+  const totalTurns = baseTurns + riseTurns + topTurns;
+  const totalLength = totalTurns * perimeter;
 
-  for (let i = 0; i < ringCount; i += 1) {
-    const p = ring[i];
-    const next = ring[(i + 1) % ringCount];
-    const tangent = new THREE.Vector3().subVectors(next, p);
-    // Outward normal in XZ (perpendicular to edge, pointing away from origin).
-    let nx = tangent.z;
-    let nz = -tangent.x;
-    const len = Math.hypot(nx, nz) || 1;
-    nx /= len;
-    nz /= len;
-    if (nx * p.x + nz * p.z < 0) {
-      nx = -nx;
-      nz = -nz;
+  const bandBottomAt = (s) => {
+    const turn = s / perimeter;
+    if (turn <= baseTurns) return 0;
+    return Math.min(riseHeight, (turn - baseTurns) * pitch);
+  };
+
+  const path = [];
+  for (let loop = 0; loop * perimeter < totalLength; loop += 1) {
+    for (const sample of samples) {
+      const s = loop * perimeter + sample.s;
+      if (s >= totalLength) break;
+      path.push({ ...sample, s });
     }
-
-    const u = i / ringCount;
-    positions.push(p.x, 0, p.z, p.x, height, p.z);
-    normals.push(nx, 0, nz, nx, 0, nz);
-    uvs.push(u, 0, u, 1);
   }
+  // Close the path exactly at the end point.
+  const endLocal = totalLength - Math.floor(totalLength / perimeter) * perimeter;
+  const endIndex = samples.findIndex((sample, index) => {
+    const next = samples[index + 1];
+    return !next || next.s > endLocal;
+  });
+  const a = samples[endIndex];
+  const b = samples[(endIndex + 1) % samples.length];
+  const bS = endIndex + 1 < samples.length ? b.s : perimeter;
+  const endT = (endLocal - a.s) / Math.max(bS - a.s, 1e-6);
+  path.push({
+    x: THREE.MathUtils.lerp(a.x, b.x, endT),
+    z: THREE.MathUtils.lerp(a.z, b.z, endT),
+    ox: endT > 0 ? a.nx : a.ox,
+    oz: endT > 0 ? a.nz : a.oz,
+    s: totalLength,
+  });
 
-  for (let i = 0; i < ringCount; i += 1) {
-    const a = i * 2;
-    const b = a + 1;
-    const c = ((i + 1) % ringCount) * 2;
-    const d = c + 1;
-    indices.push(a, c, b, b, c, d);
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setIndex(indices);
-  return geometry;
-}
-
-/** Thin rectangular band (leading edge of the wrap) in the XZ plane. */
-function createRectBandGeometry(halfX, halfZ, thickness = 0.03, segmentsPerSide = 8) {
-  const ring = rectPerimeterPoints(halfX, halfZ, segmentsPerSide);
-  const positions = [];
+  const positions = new Float32Array(path.length * 6);
+  const normals = new Float32Array(path.length * 6);
   const indices = [];
-  const ringCount = ring.length;
-  for (let i = 0; i < ringCount; i += 1) {
-    const p = ring[i];
-    positions.push(p.x, -thickness / 2, p.z, p.x, thickness / 2, p.z);
-  }
-  for (let i = 0; i < ringCount; i += 1) {
-    const a = i * 2;
-    const b = a + 1;
-    const c = ((i + 1) % ringCount) * 2;
-    const d = c + 1;
-    indices.push(a, c, b, b, c, d);
-  }
+  path.forEach((point, index) => {
+    const offset = (point.s / perimeter) * layerGrowth;
+    const x = point.x + point.ox * offset;
+    const z = point.z + point.oz * offset;
+    const bottom = bandBottomAt(point.s);
+    const length = Math.hypot(point.ox, point.oz) || 1;
+    positions.set([x, bottom, z, x, bottom + bandHeight, z], index * 6);
+    normals.set([point.ox / length, 0, point.oz / length, point.ox / length, 0, point.oz / length], index * 6);
+    if (index > 0) {
+      const p = (index - 1) * 2;
+      const c = index * 2;
+      indices.push(p, c, p + 1, p + 1, c, c + 1);
+    }
+  });
+
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  return geometry;
+  geometry.setDrawRange(0, 0);
+
+  return {
+    geometry,
+    path,
+    perimeter,
+    totalLength,
+    riseHeight,
+    bandHeight,
+    bandBottomAt,
+  };
 }
 
 /**
@@ -240,44 +266,73 @@ export async function createAssetWrapMachine({
   filmRoot.position.y = filmBottomY;
   root.add(filmRoot);
 
-  // Growing covered shell: scales up from the stack bottom.
-  const cover = mesh(
-    createRectTubeGeometry(halfX, halfZ, stackHeight, 10),
-    filmMat.clone(),
-    'Film cover',
-    filmRoot,
-  );
-  cover.scale.y = 0.001;
-  cover.material.opacity = 0;
-  cover.material.depthWrite = false;
+  // Spiral stretch film hugging the stack's outer rectangle, bottom → top.
+  const bandHeight = Math.min(0.32, stackHeight / 3);
+  const spiral = createSpiralFilm(halfX, halfZ, stackHeight, {
+    bandHeight,
+    pitch: bandHeight * 0.55,
+  });
+  const film = mesh(spiral.geometry, filmMat, 'Film spiral', filmRoot);
+  film.material.opacity = 0.34;
+  film.castShadow = false;
+  film.frustumCulled = false;
+  film.renderOrder = 2;
+  const filmPositions = spiral.geometry.getAttribute('position');
 
-  // Thin overlapping shells for stretch-wrap layering (tiny outward offset).
-  const filmLayers = [];
-  const layerCount = 3;
-  for (let index = 0; index < layerCount; index += 1) {
-    const inset = (index + 1) * 0.004;
-    const layer = mesh(
-      createRectTubeGeometry(halfX + inset, halfZ + inset, stackHeight, 10),
-      filmMat.clone(),
-      `Film layer ${index + 1}`,
-      filmRoot,
-    );
-    layer.scale.y = 0.001;
-    layer.material.opacity = 0;
-    layer.material.depthWrite = false;
-    filmLayers.push(layer);
-  }
-
-  // Leading wrap band rides the stack perimeter from bottom → top.
-  const band = mesh(
-    createRectBandGeometry(halfX + 0.006, halfZ + 0.006, 0.04, 10),
-    filmMat.clone(),
+  // Leading edge where film is currently laid onto the stack.
+  const leadingEdge = mesh(
+    new THREE.BoxGeometry(0.014, bandHeight, 0.014),
+    new THREE.MeshStandardMaterial({ color: 0xf2fbff, roughness: 0.2, transparent: true, opacity: 0.85 }),
     'Film leading edge',
     filmRoot,
   );
-  band.position.y = 0;
-  band.material.opacity = 0;
-  band.material.depthWrite = false;
+  leadingEdge.castShadow = false;
+  leadingEdge.visible = false;
+
+  // Index of the path vertex pair temporarily moved to the exact wrap head.
+  let headIndex = -1;
+  const restingPositions = filmPositions.array.slice();
+  const restoreHead = () => {
+    if (headIndex < 0) return;
+    filmPositions.array.set(restingPositions.subarray(headIndex * 6, headIndex * 6 + 6), headIndex * 6);
+    filmPositions.needsUpdate = true;
+    headIndex = -1;
+  };
+
+  const placeFilmHead = (length) => {
+    restoreHead();
+    const path = spiral.path;
+    if (length <= 0) {
+      spiral.geometry.setDrawRange(0, 0);
+      return null;
+    }
+    if (length >= spiral.totalLength) {
+      spiral.geometry.setDrawRange(0, (path.length - 1) * 6);
+      return null;
+    }
+    // Last path sample at or before the head.
+    let low = 0;
+    let high = path.length - 1;
+    while (high - low > 1) {
+      const middle = (low + high) >> 1;
+      if (path[middle].s <= length) low = middle;
+      else high = middle;
+    }
+    const from = path[low];
+    const to = path[low + 1];
+    const t = (length - from.s) / Math.max(to.s - from.s, 1e-6);
+    const fromX = filmPositions.getX(low * 2);
+    const fromZ = filmPositions.getZ(low * 2);
+    const x = THREE.MathUtils.lerp(fromX, filmPositions.getX((low + 1) * 2), t);
+    const z = THREE.MathUtils.lerp(fromZ, filmPositions.getZ((low + 1) * 2), t);
+    const bottom = spiral.bandBottomAt(length);
+    headIndex = low + 1;
+    filmPositions.setXYZ(headIndex * 2, x, bottom, z);
+    filmPositions.setXYZ(headIndex * 2 + 1, x, bottom + bandHeight, z);
+    filmPositions.needsUpdate = true;
+    spiral.geometry.setDrawRange(0, headIndex * 6);
+    return { x, z, bottom };
+  };
 
   const modelBounds = new THREE.Box3().setFromObject(content);
   const size = modelBounds.getSize(new THREE.Vector3());
@@ -300,35 +355,24 @@ export async function createAssetWrapMachine({
     },
     setWrapProgress(progress) {
       wrapProgress = THREE.MathUtils.clamp(progress, 0, 1);
-      filmRoot.visible = wrapProgress > 0.001;
+      filmRoot.visible = wrapProgress > 0;
 
-      // Turntable: several revolutions over the cycle.
-      const turns = wrapProgress * Math.PI * 8;
+      const length = wrapProgress * spiral.totalLength;
+      const turns = (length / spiral.perimeter) * Math.PI * 2;
       rotorPivot.rotation.y = turns;
 
-      // Film carriage rides the mast (up during wrap).
-      carriage.position.y = carriageRestY + wrapProgress * carriageTravel;
+      // Film carriage follows the band height up the mast.
+      const rise = spiral.riseHeight > 0 ? spiral.bandBottomAt(length) / spiral.riseHeight : wrapProgress;
+      carriage.position.y = carriageRestY + rise * carriageTravel;
 
       // Film roll cores spin as film pays out.
       filmRollPivots.forEach((pivot, index) => {
         pivot.rotation.y = turns * (1.8 + index * 0.15);
       });
 
-      // Covered height grows from stack bottom → top (tight rectangular shell).
-      const coverScale = Math.max(0.001, wrapProgress);
-      cover.scale.y = coverScale;
-      cover.material.opacity = Math.min(0.22 + wrapProgress * 0.28, 0.48);
-
-      filmLayers.forEach((layer, index) => {
-        const threshold = index / (layerCount + 1);
-        const local = THREE.MathUtils.clamp((wrapProgress - threshold) / (1 - threshold), 0, 1);
-        layer.scale.y = Math.max(0.001, local);
-        layer.material.opacity = local * (0.12 + index * 0.04);
-      });
-
-      band.visible = wrapProgress > 0.001 && wrapProgress < 0.995;
-      band.position.y = wrapProgress * stackHeight;
-      band.material.opacity = wrapProgress > 0.001 ? 0.55 : 0;
+      const head = placeFilmHead(length);
+      leadingEdge.visible = Boolean(head);
+      if (head) leadingEdge.position.set(head.x, head.bottom + bandHeight / 2, head.z);
     },
     getWrapProgress() {
       return wrapProgress;
@@ -339,9 +383,6 @@ export async function createAssetWrapMachine({
       carriage.position.y = carriageRestY;
       rotorPivot.rotation.y = 0;
       filmRollPivots.forEach((pivot) => { pivot.rotation.y = 0; });
-      cover.scale.y = 0.001;
-      filmLayers.forEach((layer) => { layer.scale.y = 0.001; });
-      band.position.y = 0;
     },
   };
 }
