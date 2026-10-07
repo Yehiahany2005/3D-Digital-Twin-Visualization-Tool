@@ -92,25 +92,19 @@ export class RigEditorPanel {
     this.query('[data-part-centre]').addEventListener('click', () => {
       if (!this.selection.length) return this.showMessage('Select the moving parts first.', true);
       this.draft.pivot = this.selectionCentre();
-      this.writeVectorFields();
       return this.showMessage('Pivot moved to the centre of the selected parts.');
     });
     [0, 1, 2].forEach((index) => {
       this.query(`[data-direction="${index}"]`).addEventListener('click', () => {
         const { direction, label } = DIRECTION_BUTTONS[this.motion].buttons[index];
         this.draft.axis = this.snapToModelAxis(this.worldDirection(direction), direction !== 'up');
-        this.writeVectorFields();
         this.showMessage(`Direction set to "${label}". The arrow and ring on the model show it; use Reverse if it goes the wrong way.`);
       });
     });
     this.query('[data-flip-axis]').addEventListener('click', () => {
       this.draft.axis.negate();
-      this.writeVectorFields();
     });
 
-    ['axisX', 'axisY', 'axisZ', 'pivotX', 'pivotY', 'pivotZ'].forEach((name) => {
-      this.field(name).addEventListener('change', () => this.readVectorFields());
-    });
     this.field('type').addEventListener('change', () => {
       const type = this.field('type').value;
       const motion = type === 'prismatic' || type === 'stretch' ? 'prismatic' : 'revolute';
@@ -342,7 +336,6 @@ export class RigEditorPanel {
     this.draft.pivot = pivot;
     this.draft.axis = axis;
     this.draft.pivotSource = 'surface';
-    this.writeVectorFields();
     this.setPickMode('parts');
     const messages = {
       round: `Round surface found (Ø ${round(result.radius * 2 * scale, 1)} mm). The axis runs through its centre.`,
@@ -457,27 +450,6 @@ export class RigEditorPanel {
     return best;
   }
 
-  get millimetresPerUnit() {
-    return this.rig.metresPerUnit * 1000;
-  }
-
-  writeVectorFields() {
-    const { axis, pivot } = this.draft;
-    ['X', 'Y', 'Z'].forEach((component, index) => {
-      this.field(`axis${component}`).value = String(round(axis.getComponent(index), 4));
-      this.field(`pivot${component}`).value = String(round(pivot.getComponent(index) * this.millimetresPerUnit, 1));
-    });
-  }
-
-  readVectorFields() {
-    const read = (name) => Number(this.field(name).value) || 0;
-    const axis = new THREE.Vector3(read('axisX'), read('axisY'), read('axisZ'));
-    if (axis.lengthSq() > 0) this.draft.axis = axis.normalize();
-    this.draft.pivot = new THREE.Vector3(read('pivotX'), read('pivotY'), read('pivotZ')).divideScalar(this.millimetresPerUnit);
-    this.draft.pivotSource = 'manual';
-    this.writeVectorFields();
-  }
-
   jointOptions(select, { includeBase, exclude }) {
     select.replaceChildren();
     if (includeBase) select.appendChild(new Option('Base (fixed)', ''));
@@ -532,7 +504,6 @@ export class RigEditorPanel {
     this.field('min').value = String(draft.min);
     this.field('max').value = String(draft.max);
     this.field('speed').value = String(draft.speed);
-    this.writeVectorFields();
   }
 
   showMessage(text, isError = false) {
