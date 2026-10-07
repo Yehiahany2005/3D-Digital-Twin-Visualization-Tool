@@ -2,7 +2,6 @@ import { formatLabel } from '../loaders/ModelLoader.js';
 import { ABB_IRB6760_RIG } from '../rigs/abbIrb6760.js';
 // ?url makes Vite copy each model into the production build and return its final URL.
 import robotUrl from './robot.glb?url';
-import forkliftUrl from './Forklift.glb?url';
 import depalletizerUrl from './Robotics_Depallatizer_IRB660_with_SafeMove_Zone.glb?url';
 import itemPickerUrl from './Robotics_Item_Picker_IRB1300.glb?url';
 import unitreeUrl from './Unitree_G1_Brooklyn_Uprock.glb?url';
@@ -16,12 +15,6 @@ export const ASSET_REGISTRY = [
     type: 'Industrial Robot',
     model: robotUrl,
     rig: ABB_IRB6760_RIG,
-  },
-  {
-    id: 'forklift',
-    name: 'Forklift',
-    type: 'Industrial Vehicle',
-    model: forkliftUrl,
   },
   {
     id: 'abb_depalettizer',
