@@ -590,6 +590,43 @@ canvas { display: block; }
   line-height: 1.4;
 }
 
+.saved-model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--subtle);
+  font-size: 0.64rem;
+}
+
+.saved-model[hidden] { display: none; }
+
+.saved-model span::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 0.4rem;
+  border-radius: 50%;
+  background: #5bbf8a;
+  content: "";
+  vertical-align: 1px;
+}
+
+.saved-model button {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid #50545a;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.64rem;
+  font-weight: 600;
+}
+
+.saved-model button:hover { border-color: #8a4b4b; background: rgba(214, 102, 102, 0.1); color: #f0b4b4; }
+.saved-model button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .asset-status.is-error {
   border-color: #8a4b4b;
   background: rgba(214, 102, 102, 0.1);

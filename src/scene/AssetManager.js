@@ -121,6 +121,14 @@ export class AssetManager {
     this.cameraManager.frameObject(asset.model, this.controls);
   }
 
+  // Drops a model from memory once it is no longer listed.
+  forget(assetId) {
+    const asset = this.cache.get(assetId);
+    if (!asset || asset === this.currentAsset) return;
+    asset.animationController.dispose();
+    this.cache.delete(assetId);
+  }
+
   update(deltaTime) {
     this.currentAsset?.animationController.update(deltaTime);
   }

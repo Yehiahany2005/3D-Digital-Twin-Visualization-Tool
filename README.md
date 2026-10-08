@@ -35,6 +35,9 @@ Any model, including imported STEP/IGES files, can be made movable and animated 
 3. **Export GLB with animations**: every sequence becomes a real animation clip inside a `.glb`
    file that plays in Blender, Unity, Unreal and web viewers.
 
+Imported models are kept in this browser (IndexedDB), so they are still listed after a page
+refresh; "Remove" under the asset list deletes one from the device. Nothing is uploaded.
+
 Joints, poses and sequences are saved in the browser and in the `.rig.json` file
 (Joint Setup → Export), which can be loaded again onto the original model. Animated
 exports are always GLB: STEP and other CAD formats have no way to store animation.

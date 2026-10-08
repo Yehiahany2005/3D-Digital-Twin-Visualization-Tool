@@ -54,14 +54,16 @@ export function getAssetConfig(assetId) {
 
 let importCount = 0;
 
-export function registerImportedAsset(file) {
+// stored: the file is also saved in this browser (ImportStore), under that id.
+export function registerImportedAsset(file, { id, stored = false } = {}) {
   importCount += 1;
   const config = {
-    id: `imported_${importCount}`,
+    id: id || `imported_${importCount}`,
     name: file.name.replace(/\.[^.]+$/, ''),
     type: `Imported ${formatLabel(file.name)} Model`,
     file,
     imported: true,
+    stored,
   };
   ASSET_REGISTRY.push(config);
   return config;
