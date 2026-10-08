@@ -6,6 +6,7 @@ import { AnimationController } from '../scene/AnimationController.js';
 import { emptyRigDefinition, Rig } from '../motion/Rig.js';
 import { MotionPlayer } from '../motion/MotionPlayer.js';
 import { loadSavedRig } from '../motion/RigStore.js';
+import { mergeStaticMeshes } from './mergeStatic.js';
 
 // Model files for scenes. Each file is parsed once into a template that is never shown or
 // rigged; every placed copy is a clone of it with its own rig, motion player and animations.
@@ -105,6 +106,10 @@ export class ModelTemplates {
     // Remembered so the scene can tell when the model's rig was changed in Machine mode.
     asset.rigSignature = JSON.stringify(definition);
     asset.player = new MotionPlayer(asset.rig);
+    // Draw what moves together as one piece (shared by every copy of this model and rig).
+    template.mergeCache ??= new Map();
+    const { merged, before } = mergeStaticMeshes(asset, template.mergeCache);
+    asset.stats = { ...template.stats, drawn: template.stats.meshes - before + merged };
     return asset;
   }
 

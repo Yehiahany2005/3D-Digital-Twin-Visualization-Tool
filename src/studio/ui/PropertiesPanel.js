@@ -49,7 +49,7 @@ export class PropertiesPanel {
     const runtime = this.editor.selectedRuntime;
     const structure = item
       ? JSON.stringify([item.id, runtime?.kind, item.mount || item.attach || null, Boolean(item.locked), Object.keys(item.params || {}), this.editor.playing, this.editor.freeRotation, Boolean(item.hidden), this.editor.items.map((other) => other.id)])
-      : 'none';
+      : `none:${this.editor.items.length}`;
     if (structure !== this.structure) {
       this.structure = structure;
       this.render();
@@ -142,10 +142,11 @@ export class PropertiesPanel {
     source.textContent = this.describeSource(item, runtime);
     node.append(source);
     if (runtime?.asset?.stats) {
-      const { meshes, triangles } = runtime.asset.stats;
-      const heavy = meshes > 300 || triangles > 1.5e6;
+      const { meshes, triangles, drawn = meshes } = runtime.asset.stats;
+      // Many triangles still cost after merging; many parts only until merged.
+      const heavy = drawn > 300 || triangles > 1.5e6;
       const stats = element('p', `editor-hint properties-stats${heavy ? ' is-heavy' : ''}`);
-      stats.textContent = `${meshes.toLocaleString()} parts · ${(triangles / 1e6).toFixed(2)} M triangles${heavy ? ' · heavy: several of these may slow the view' : ''}`;
+      stats.textContent = `${meshes.toLocaleString()} parts${drawn < meshes ? `, drawn as ${drawn}` : ''} · ${(triangles / 1e6).toFixed(2)} M triangles${heavy ? ' · heavy: several of these may slow the view' : ''}`;
       node.append(stats);
     }
     if (item.mount || item.attach) {
