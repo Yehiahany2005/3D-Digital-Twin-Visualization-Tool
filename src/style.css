@@ -801,21 +801,6 @@ canvas { display: block; }
   color: #f0b4b4;
 }
 
-.joint-filter {
-  width: 100%;
-  min-height: 1.75rem;
-  padding: 0.25rem 0.45rem;
-  border: 1px solid #50545a;
-  border-radius: 3px;
-  background: #34373b;
-  color: var(--text);
-  font: inherit;
-  font-size: 0.68rem;
-}
-
-.joint-filter[hidden] { display: none; }
-.joint-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-
 /* Joint threads: one slim row per joint. Joints mounted on another branch out of it through a
    line that drops from its icon and curves into each child, like nested comments. */
 .joint-defs {
@@ -1440,8 +1425,7 @@ canvas { display: block; }
 .reach-bar[hidden] { display: none; }
 .reach-bar.is-active { border-color: rgba(105, 199, 211, 0.6); }
 
-.reach-bar button,
-.reach-tool {
+.reach-bar button {
   min-height: 1.85rem;
   padding: 0.25rem 0.6rem;
   border: 1px solid #50545a;
@@ -1453,8 +1437,7 @@ canvas { display: block; }
   font-weight: 600;
 }
 
-.reach-bar button:hover:not(:disabled),
-.reach-tool:hover { border-color: var(--accent); }
+.reach-bar button:hover:not(:disabled) { border-color: var(--accent); }
 .reach-bar :is(button, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .reach-toggle {
@@ -1497,7 +1480,6 @@ canvas { display: block; }
   color: #dff8fb;
 }
 
-.reach-tool[hidden],
 .reach-action[hidden] { display: none; }
 
 .reach-status {
@@ -1518,59 +1500,101 @@ canvas { display: block; }
   color: #dff8fb;
 }
 
-/* Tool points in Joint Setup */
 
-.tool-list {
-  display: grid;
-  gap: 0.3rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.tool-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+.reach-bar .reach-modes button {
+  display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.3rem;
-  border: 1px solid var(--border-soft);
-  border-left: 3px solid #ff78c8;
-  border-radius: 3px;
+  gap: 0.3rem;
 }
 
-.tool-item-text { display: grid; min-width: 0; }
-
-.tool-item-text input {
-  min-width: 0;
-  padding: 0.15rem 0.3rem;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 0.7rem;
-  font-weight: 600;
+.reach-modes svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.tool-item-text input:hover { border-color: #50545a; }
-.tool-item-text input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
-.tool-item-text small { padding-left: 0.3rem; color: var(--subtle); font-size: 0.6rem; }
-.tool-item-text small.is-error { color: #f0b4b4; }
+.reach-modes svg .dash { stroke-dasharray: 1.5 1.5; }
 
-.tool-item button {
-  min-height: 1.6rem;
-  padding: 0.2rem 0.45rem;
-  border: 1px solid #50545a;
-  border-radius: 3px;
-  background: #34373b;
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.62rem;
-  font-weight: 600;
+/* Tool tip control */
+
+.reach-tip { position: relative; }
+
+.reach-bar .reach-tip-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
-.tool-item button:hover { border-color: var(--accent); background: var(--accent-soft); }
-.tool-item button.is-active { border-color: var(--accent); background: var(--accent); color: #10282c; }
-.tool-item button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.reach-tip-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: #ff78c8;
+  box-shadow: 0 0 0 3px rgba(255, 120, 200, 0.22);
+}
+
+.reach-bar .reach-tip-button.is-missing { border-color: #ff78c8; color: #ffd1ec; }
+.reach-bar .reach-tip-button.is-picking { border-color: #ff78c8; background: rgba(255, 120, 200, 0.18); }
+.reach-tip-button[aria-expanded="true"] .summary-chevron { transform: rotate(225deg) translate(-1px, -1px); }
+
+.reach-tip-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  display: grid;
+  gap: 0.5rem;
+  width: 17rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+}
+
+.reach-tip-menu[hidden] { display: none; }
+
+.reach-tip-picture {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+  background: #222428;
+}
+
+.pic-machine { fill: #4a4f55; }
+.pic-link { stroke: #8d949b; stroke-width: 7; stroke-linecap: round; }
+.pic-joint { fill: #2b2d31; stroke: var(--accent); stroke-width: 2; }
+.pic-tool { stroke: #b9bec3; stroke-width: 3; fill: none; stroke-linecap: round; }
+.pic-tip { fill: #ff78c8; }
+.pic-tip-arrow { stroke: #ff78c8; stroke-width: 2; }
+.pic-no line { stroke: #f06464; stroke-width: 2; }
+.pic-text { font-size: 9px; font-family: inherit; }
+.pic-text-no { fill: #f39a9a; }
+.pic-text-tip { fill: #ffb3df; font-weight: 700; }
+
+.reach-tip-text,
+.reach-tip-where {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.reach-tip-text strong { color: #ffb3df; }
+.reach-tip-where { color: var(--subtle); }
+
+.reach-tip-actions {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 0.3rem;
+}
+
+.reach-bar .reach-tip-actions button { padding: 0.25rem 0.3rem; font-size: 0.66rem; }
+.reach-bar .reach-tip-actions .is-primary { border-color: #ff78c8; background: rgba(255, 120, 200, 0.16); color: #ffe0f2; }
+.reach-tip-actions button[hidden] { display: none; }
+.reach-bar .reach-tip-actions button:disabled { cursor: default; opacity: 0.42; }

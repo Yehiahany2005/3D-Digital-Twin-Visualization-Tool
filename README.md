@@ -32,8 +32,8 @@ Any model, including imported STEP/IGES files, can be made movable and animated 
 1. **Joint Setup**: pick the parts that move and define how they rotate or slide.
 2. **Animation Setup**: jog the joints into position and save poses, then chain poses into
    sequences with move times and waits. Sequences play and loop in the app.
-3. **Reach**: set a tool point in Joint Setup (e.g. a gripper tip), switch on **Reach** above the 3D
-   view and click anywhere: the machine moves its tool there (inverse kinematics), or explains why
+3. **Reach**: in the bar above the 3D view, set the **Tool tip** (click the very end of the tool, e.g.
+   gripper fingertips), switch on **Reach** and click anywhere: the machine moves its tool there (inverse kinematics), or explains why
    it can't (too far, a joint would pass its range, or the tool can't point that way).
 4. **Export GLB with animations**: every sequence becomes a real animation clip inside a `.glb`
    file that plays in Blender, Unity, Unreal and web viewers.

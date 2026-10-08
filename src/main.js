@@ -23,7 +23,7 @@ import { CommandsPanel } from './ui/CommandsPanel.js';
 import { RigEditorPanel } from './ui/RigEditorPanel.js';
 import { AnimationEditorPanel } from './ui/AnimationEditorPanel.js';
 import { ReachPanel } from './ui/ReachPanel.js';
-import { JointGizmo, PartHighlight, ReachMarker, SelectionOutline, ToolMarkers, ViewportPicker } from './scene/RigHelpers.js';
+import { JointGizmo, PartHighlight, ReachMarker, SelectionOutline, SurfacePreview, ToolMarkers, ViewportPicker } from './scene/RigHelpers.js';
 import { loadSavedRig } from './motion/RigStore.js';
 import { AssetManager } from './scene/AssetManager.js';
 import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
@@ -141,7 +141,7 @@ const picker = new ViewportPicker({ domElement: rendererManager.renderer.domElem
 const rigEditor = new RigEditorPanel({
   card: document.querySelector('[data-rig-editor]'),
   picker,
-  toolMarkers: new ToolMarkers(sceneManager.scene),
+  surfacePreview: new SurfacePreview(sceneManager.scene),
   outline: new SelectionOutline(sceneManager.scene),
   highlight: new PartHighlight(sceneManager.scene),
   gizmo: new JointGizmo(sceneManager.scene),
@@ -154,10 +154,6 @@ const reachPanel = new ReachPanel({
   toolMarkers: new ToolMarkers(sceneManager.scene),
   floor,
   onNeedJoints: () => rigEditor.open(),
-  onNeedTool: () => {
-    rigEditor.startToolPick(null);
-    rigEditor.open();
-  },
 });
 
 const animationEditorCard = document.querySelector('[data-animation-editor]');

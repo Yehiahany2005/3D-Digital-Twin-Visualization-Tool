@@ -360,3 +360,80 @@ export class ReachMarker {
     this.group.visible = false;
   }
 }
+
+// Live preview for "find the axis on the model": tints the surface under the pointer and
+// draws the axis the joint would turn around (or slide along) through its pivot, with a
+// ring the size of a round shaft or hole.
+export class SurfacePreview {
+  constructor(scene) {
+    this.scene = scene;
+    this.patch = new THREE.Mesh(new THREE.BufferGeometry(), tintMaterial(TARGET_COLOR, 0.55, false));
+    this.patch.matrixAutoUpdate = false;
+    this.patch.renderOrder = 1000;
+    this.patch.raycast = () => {};
+    this.axisLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineDashedMaterial({ color: ACCENT, depthTest: false, transparent: true }),
+    );
+    this.axisLine.frustumCulled = false;
+    this.pivot = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), overlayMaterial(ACCENT));
+    this.ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.04, 8, 64), overlayMaterial(ACCENT));
+    this.group = new THREE.Group();
+    this.group.name = 'SurfacePreview';
+    this.group.add(this.patch, this.axisLine, this.pivot, this.ring);
+    this.group.traverse((object) => { object.renderOrder = Math.max(object.renderOrder, 1000); });
+    this.group.visible = false;
+    this.key = null;
+    scene.add(this.group);
+  }
+
+  // mesh: the hovered mesh; result: analyzeSurface(); world*: pivot/axis in world space.
+  show({ mesh, result, worldPivot, worldAxis, worldRadius, size }) {
+    const key = `${mesh.uuid}:${result.triangles[0]}:${result.triangles.length}`;
+    if (key !== this.key) {
+      this.key = key;
+      this.patch.geometry.dispose();
+      this.patch.geometry = patchGeometry(mesh.geometry, result.triangles);
+    }
+    this.patch.matrix.copy(mesh.matrixWorld);
+    this.patch.matrixWorldNeedsUpdate = true;
+
+    const half = size * 0.45;
+    const positions = this.axisLine.geometry.attributes.position;
+    positions.setXYZ(0, ...worldPivot.clone().addScaledVector(worldAxis, -half).toArray());
+    positions.setXYZ(1, ...worldPivot.clone().addScaledVector(worldAxis, half).toArray());
+    positions.needsUpdate = true;
+    this.axisLine.material.dashSize = size * 0.025;
+    this.axisLine.material.gapSize = size * 0.015;
+    this.axisLine.computeLineDistances();
+
+    this.pivot.position.copy(worldPivot);
+    this.pivot.scale.setScalar(size * 0.012);
+    this.ring.visible = Boolean(worldRadius);
+    if (worldRadius) {
+      this.ring.position.copy(worldPivot);
+      this.ring.scale.setScalar(worldRadius * 1.08);
+      this.ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), worldAxis);
+    }
+    this.group.visible = true;
+  }
+
+  hide() {
+    this.group.visible = false;
+  }
+}
+
+function patchGeometry(source, triangles) {
+  const position = source.attributes.position;
+  const index = source.index;
+  const values = new Float32Array(triangles.length * 9);
+  triangles.forEach((triangle, t) => {
+    for (let corner = 0; corner < 3; corner += 1) {
+      const vertex = index ? index.getX(triangle * 3 + corner) : triangle * 3 + corner;
+      values.set([position.getX(vertex), position.getY(vertex), position.getZ(vertex)], (t * 3 + corner) * 3);
+    }
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(values, 3));
+  return geometry;
+}

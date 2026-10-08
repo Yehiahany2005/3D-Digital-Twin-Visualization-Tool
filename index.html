@@ -141,7 +141,7 @@
 
                 <span class="editor-subtitle">Axis &amp; pivot</span>
                 <div class="button-row">
-                  <button type="button" data-pick-surface title="Click a round shaft, hole or flat face on the model">Pick from surface</button>
+                  <button type="button" data-pick-surface title="Hover a round shaft, hole or flat face to preview the axis the joint turns around, then click">Find axis on model</button>
                   <button type="button" data-part-centre>Part centre</button>
                 </div>
                 <div class="button-row axis-buttons">
@@ -171,20 +171,7 @@
                   <span class="editor-section-title">Joints in this rig</span>
                   <span class="editor-count" data-joint-count></span>
                 </div>
-                <input type="search" class="joint-filter" data-joint-filter placeholder="Find a joint…" aria-label="Find a joint" autocomplete="off" hidden />
                 <ul class="joint-defs" data-joint-defs></ul>
-              </section>
-
-              <section class="editor-section">
-                <div class="editor-section-head">
-                  <span class="editor-section-title">Tool point</span>
-                  <span class="editor-count" data-tool-count></span>
-                </div>
-                <small class="editor-hint" data-tool-hint>The point that goes where you click in Reach mode, e.g. a gripper tip. It points out of the surface you click.</small>
-                <ul class="tool-list" data-tool-list></ul>
-                <div class="button-row">
-                  <button type="button" data-add-tool>Set tool point</button>
-                </div>
               </section>
 
               <section class="editor-section">
@@ -270,11 +257,45 @@
           <p class="viewport-status" data-asset-status role="status" hidden></p>
           <div class="reach-bar" data-reach-bar>
             <button type="button" class="reach-toggle" data-reach-toggle aria-pressed="false" title="Click a spot in the 3D view and the tool moves there. Esc to stop."><i data-lucide="crosshair" aria-hidden="true"></i>Reach</button>
-            <select class="reach-tool" data-reach-tool aria-label="Tool point" hidden></select>
+            <div class="reach-tip">
+              <button type="button" class="reach-tip-button" data-reach-tip-button aria-haspopup="dialog" aria-expanded="false" title="The tool tip: the spot that goes where you click">
+                <span class="reach-tip-dot" aria-hidden="true"></span><span data-reach-tip-label>Tool tip</span><span class="summary-chevron" aria-hidden="true"></span>
+              </button>
+              <div class="reach-tip-menu" data-reach-tip-menu role="dialog" aria-label="Tool tip" hidden>
+                <svg class="reach-tip-picture" viewBox="0 0 240 96" role="img" aria-label="A robot arm: the tool tip is the very end of the gripper, not where the tool is attached">
+                  <rect x="14" y="74" width="44" height="12" rx="2" class="pic-machine" />
+                  <rect x="30" y="58" width="12" height="18" class="pic-machine" />
+                  <line x1="36" y1="60" x2="96" y2="22" class="pic-link" />
+                  <line x1="96" y1="22" x2="160" y2="34" class="pic-link" />
+                  <circle cx="36" cy="60" r="6" class="pic-joint" /><circle cx="96" cy="22" r="6" class="pic-joint" /><circle cx="160" cy="34" r="5" class="pic-joint" />
+                  <rect x="155" y="38" width="12" height="16" class="pic-machine" />
+                  <line x1="161" y1="54" x2="161" y2="70" class="pic-tool" />
+                  <path d="M152 70 h18 M152 70 v10 M170 70 v10" class="pic-tool" />
+                  <g class="pic-no"><line x1="170" y1="40" x2="178" y2="48" /><line x1="178" y1="40" x2="170" y2="48" /></g>
+                  <text x="182" y="48" class="pic-text pic-text-no">not here</text>
+                  <circle cx="161" cy="82" r="4.5" class="pic-tip" />
+                  <line x1="161" y1="86" x2="161" y2="93" class="pic-tip-arrow" />
+                  <text x="176" y="86" class="pic-text pic-text-tip">tool tip ✓</text>
+                </svg>
+                <p class="reach-tip-text"><strong>Tool tip</strong> is the spot that goes where you click. Pick the <em>very end</em> of the tool: fingertips, suction cup face or nozzle, not where it's bolted on. The arrow shows which way it points.</p>
+                <p class="reach-tip-where" data-reach-tip-where></p>
+                <div class="reach-tip-actions">
+                  <button type="button" class="is-primary" data-reach-tip-pick>Pick on model</button>
+                  <button type="button" data-reach-tip-flip title="Reverse the way the tool points">Flip arrow</button>
+                  <button type="button" data-reach-tip-reset>Reset</button>
+                </div>
+              </div>
+            </div>
             <div class="reach-modes" role="group" aria-label="Tool direction">
-              <button type="button" data-reach-mode="down">Point down</button>
-              <button type="button" data-reach-mode="any">Any angle</button>
-              <button type="button" data-reach-mode="surface">Face surface</button>
+              <button type="button" data-reach-mode="down">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v9M4.5 7.5 8 11l3.5-3.5" /><path d="M2 14.5h12" /></svg>Straight down
+              </button>
+              <button type="button" data-reach-mode="any">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.5l6.5 6.5M9.8 5.8v4.4H5.4" /><path d="M2 14.5h12" /><path d="M12.5 2.5a5 5 0 0 1 1 5" class="dash" /></svg>Any angle
+              </button>
+              <button type="button" data-reach-mode="surface">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 12.5 12.5 3.5" /><path d="M3.2 2.6 6.9 7.8M3.3 6.6l3.6 1.2.3-3.8" /><path d="M8.3 8.9l1.1 1.3 1.2-1" /></svg>Square to surface
+              </button>
             </div>
             <span class="reach-status" data-reach-status role="status"></span>
             <button type="button" class="reach-action" data-reach-action hidden></button>

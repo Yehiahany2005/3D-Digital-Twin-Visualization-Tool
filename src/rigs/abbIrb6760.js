@@ -91,7 +91,7 @@ export const ABB_IRB6760_RIG = {
     },
   ],
   // Tool point for Reach: the tool flange, 0.2 m along Link6's own Z (from the file's
-  // ABB_ro_int_mountOffset). Move it in Joint Setup to the tip of a gripper once one is fitted.
+  // ABB_ro_int_mountOffset). Move it with Reach → Tool tip once a gripper is fitted.
   tools: [{ id: 'flange', name: 'Tool flange', joint: 'axis6', frame: 'part', point: [0, 0, 0.2], direction: [0, 0, 1] }],
   poses: POSES,
   sequences: [
