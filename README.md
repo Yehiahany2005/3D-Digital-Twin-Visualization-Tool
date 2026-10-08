@@ -36,8 +36,11 @@ Any model, including imported STEP/IGES files, can be made movable and animated 
    file that plays in Blender, Unity, Unreal and web viewers.
 
 Imported models are kept in this browser (IndexedDB), so they are still listed after a page
-refresh; "Remove" under the asset list deletes one from the device. Nothing is uploaded.
+refresh. Pick models from the asset picker in the header; the ✕ next to an imported model
+deletes it from the device. Nothing is uploaded.
 
 Joints, poses and sequences are saved in the browser and in the `.rig.json` file
 (Joint Setup → Export), which can be loaded again onto the original model. Animated
 exports are always GLB: STEP and other CAD formats have no way to store animation.
+
+Plans and research for click-to-reach (inverse kinematics) are in [`docs/IK_PLAN.md`](docs/IK_PLAN.md).

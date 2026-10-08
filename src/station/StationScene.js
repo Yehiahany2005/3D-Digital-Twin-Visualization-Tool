@@ -207,6 +207,9 @@ export class StationScene {
     const robot = this.robot;
     this.cycle?.reset();
     this.cycle = null;
+    // The gripper belongs to the station, not the robot: take it off the wrist again.
+    this.root.userData.gripper?.removeFromParent();
+    this.root.userData.gripper = null;
     if (robot) robot.parent?.remove(robot);
     return robot;
   }
