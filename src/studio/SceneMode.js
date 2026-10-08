@@ -3,7 +3,8 @@ import { ASSET_REGISTRY, getAssetConfig, registerImportedAsset } from '../assets
 import { getStoredImport, storeImport } from '../assets/ImportStore.js';
 import { formatLabel, UNIT_SCALES, unsupportedFormatMessage } from '../loaders/ModelLoader.js';
 import { loadRigByKey, saveRigByKey } from '../motion/RigStore.js';
-import { emptyScene, newId } from './SceneDocument.js';
+import { dependentsOf, emptyScene, newId, parentOf } from './SceneDocument.js';
+import { anchorNamed, anchorsOf } from './Anchors.js';
 import { deleteScene, lastSceneId, listScenes, loadScene, rememberLastScene, saveScene } from './SceneStore.js';
 import { buildBundle, downloadBlob, readBundle } from './SceneBundle.js';
 import { currentRigDefinition, ModelTemplates } from './ModelTemplates.js';
@@ -66,7 +67,10 @@ export class SceneMode {
       onEditInMachine: (item) => this.editInMachine(item),
       onRelink: (item) => this.relink(item),
       onAdd: () => this.drawer.setOpen(true),
-      extraSections: [(item, runtime, panel) => this.paramsSection(item, runtime, panel)],
+      extraSections: [
+        (item, runtime, panel) => this.paramsSection(item, runtime, panel),
+        (item, runtime) => this.connectionsSection(item, runtime),
+      ],
     });
     this.drawer = new AddDrawer({
       drawer: ui.drawer,
@@ -312,6 +316,75 @@ export class SceneMode {
     node.insertBefore(grid, node.children[1] || null);
     if (runtime?.kind === 'loading') node.append(Object.assign(document.createElement('p'), { className: 'editor-hint', textContent: 'Updating…' }));
     return node;
+  }
+
+  // Mounting a tool on a robot, or making an item follow another item (or one robot joint).
+  connectionsSection(item, runtime) {
+    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing') return null;
+    const { editor } = this;
+    const node = document.createElement('section');
+    node.className = 'editor-section';
+    const title = document.createElement('span');
+    title.className = 'editor-section-title';
+    title.textContent = 'Connected to';
+    node.append(title);
+    const hint = (text) => node.append(Object.assign(document.createElement('p'), { className: 'editor-hint', textContent: text }));
+    const row = () => {
+      const element = document.createElement('div');
+      element.className = 'button-row connection-row';
+      node.append(element);
+      return element;
+    };
+    const button = (label, run, title = label) => Object.assign(document.createElement('button'), { type: 'button', textContent: label, title, onclick: run });
+
+    if (item.mount || item.attach) {
+      const parent = editor.item(parentOf(item));
+      const joint = item.attach?.joint && editor.runtimes.get(item.attach.to)?.asset?.rig?.jointsById.get(item.attach.joint);
+      hint(item.mount
+        ? `Mounted on "${parent?.name}": it moves with the robot, and the robot's Reach uses its tip.`
+        : `Follows "${parent?.name}"${joint ? ` › ${joint.name}` : ''}: it moves with it.`);
+      row().append(button(item.mount ? 'Unmount' : 'Detach', () => editor.unlinkItem(item.id), 'Leave it where it is, on its own'));
+      return node;
+    }
+
+    // A tool can be mounted on any machine that has a tool flange (its tool tip set up).
+    const mountAnchor = anchorsOf(runtime).find((anchor) => anchor.type === 'tool-mount');
+    if (mountAnchor) {
+      const robots = editor.items.filter((other) => other.id !== item.id && anchorNamed(editor.runtimes.get(other.id), 'tool'));
+      if (robots.length) {
+        const select = document.createElement('select');
+        robots.forEach((robot) => select.append(new Option(robot.name, robot.id)));
+        row().append(select, button('Mount', () => editor.mountItem(item.id, select.value, 'tool', mountAnchor.name), 'Put this tool on the robot\'s flange'));
+        hint('Or drag it onto the robot\'s flange: it snaps on.');
+      } else {
+        hint('Place a robot with a tool tip set up, then mount this tool on it.');
+      }
+    }
+
+    // Any item can follow another one, e.g. a camera on a robot arm or a box on a pallet.
+    const excluded = dependentsOf(editor.document, item.id);
+    const options = [];
+    editor.items.forEach((other) => {
+      if (other.id === item.id || excluded.has(other.id)) return;
+      options.push({ label: other.name, value: JSON.stringify([other.id, null]) });
+      const rig = editor.runtimes.get(other.id)?.asset?.rig;
+      rig?.joints.filter((joint) => !joint.driven).forEach((joint) => {
+        options.push({ label: `${other.name} › ${joint.name}`, value: JSON.stringify([other.id, joint.id]) });
+      });
+    });
+    if (options.length) {
+      const select = document.createElement('select');
+      select.append(new Option('Follow another item…', ''));
+      options.forEach((option) => select.append(new Option(option.label, option.value)));
+      select.title = 'It stays where it is and moves with what it follows';
+      select.addEventListener('change', () => {
+        if (!select.value) return;
+        const [targetId, jointId] = JSON.parse(select.value);
+        editor.attachItem(item.id, targetId, jointId);
+      });
+      row().append(select);
+    }
+    return node.children.length > 1 ? node : null;
   }
 
   iconFor(item, runtime) {

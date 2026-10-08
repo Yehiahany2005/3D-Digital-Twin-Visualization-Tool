@@ -150,16 +150,21 @@ export class ReachPanel {
   renderTip() {
     const tool = this.tool;
     const joint = tool && this.rig.jointsById.get(tool.joint);
-    this.tipLabel.textContent = tool ? 'Tool tip' : 'Set tool tip';
+    // In a scene, a tool mounted on the machine decides the tip; it can't be edited here.
+    const lockedBy = this.asset?.toolLockedBy;
+    this.tipLabel.textContent = lockedBy ? `Tip: ${lockedBy}` : tool ? 'Tool tip' : 'Set tool tip';
     this.tipButton.classList.toggle('is-missing', !tool);
-    this.tipWhere.textContent = tool
-      ? (joint ? `Now on "${joint.name}": the pink dot and arrow on the model.` : 'Its part no longer has a joint. Pick it again.')
-      : 'Not set yet.';
+    this.tipWhere.textContent = lockedBy
+      ? `The tip of the mounted "${lockedBy}" is used. Unmount it in Properties to set the tool tip yourself.`
+      : tool
+        ? (joint ? `Now on "${joint.name}": the pink dot and arrow on the model.` : 'Its part no longer has a joint. Pick it again.')
+        : 'Not set yet.';
+    ['[data-reach-tip-pick]', '[data-reach-tip-flip]'].forEach((selector) => { this.query(selector).disabled = Boolean(lockedBy); });
     const preset = this.asset?.config.rig?.tools?.length;
     this.tipReset.textContent = preset ? 'Reset' : 'Remove';
     this.tipReset.title = preset ? 'Go back to the built-in tool tip' : 'Remove the tool tip';
-    this.tipReset.hidden = !tool && !preset;
-    this.query('[data-reach-tip-flip]').disabled = !tool;
+    this.tipReset.hidden = (!tool && !preset) || Boolean(lockedBy);
+    if (!lockedBy) this.query('[data-reach-tip-flip]').disabled = !tool;
     if (!this.active && !this.pickingTip) this.showReady();
   }
 

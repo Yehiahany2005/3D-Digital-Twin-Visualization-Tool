@@ -48,7 +48,7 @@ export class PropertiesPanel {
     const item = this.editor.selectedItem;
     const runtime = this.editor.selectedRuntime;
     const structure = item
-      ? JSON.stringify([item.id, runtime?.kind, Boolean(item.mount || item.attach), Boolean(item.locked), Object.keys(item.params || {}), this.editor.playing, this.editor.freeRotation, Boolean(item.hidden)])
+      ? JSON.stringify([item.id, runtime?.kind, item.mount || item.attach || null, Boolean(item.locked), Object.keys(item.params || {}), this.editor.playing, this.editor.freeRotation, Boolean(item.hidden), this.editor.items.map((other) => other.id)])
       : 'none';
     if (structure !== this.structure) {
       this.structure = structure;

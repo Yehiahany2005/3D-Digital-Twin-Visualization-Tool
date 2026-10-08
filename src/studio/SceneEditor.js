@@ -3,6 +3,7 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import { cloneScene, dependentsOf, emptyScene, newId, ROTATION_ORDER, uniqueName } from './SceneDocument.js';
 import { disposeInstance } from './ModelTemplates.js';
 import { getComponent, resolveParams } from './catalog/index.js';
+import { alignment, anchorNamed, anchorsOf, findSnap, worldOf } from './Anchors.js';
 
 const D2R = Math.PI / 180;
 const HISTORY_LIMIT = 100;
@@ -19,6 +20,22 @@ function buildSignature(item) {
 
 // A grey wire box that stands in for a model that couldn't be loaded (e.g. a file that is not on
 // this computer), so the rest of the scene still opens and the item can be relinked or removed.
+// Green ring and dot on the anchor a dragged item will snap to.
+function createSnapMarker() {
+  const group = new THREE.Group();
+  group.name = 'SnapMarker';
+  const material = new THREE.MeshBasicMaterial({ color: 0x4cd38a, depthTest: false, transparent: true });
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), material);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.012, 8, 40), material);
+  group.add(dot, ring);
+  group.traverse((object) => { object.renderOrder = 1003; });
+  group.visible = false;
+  return group;
+}
+
+const toVector = (values) => new THREE.Vector3(...values);
+const toQuaternion = (degrees) => new THREE.Quaternion().setFromEuler(new THREE.Euler(degrees[0] * D2R, degrees[1] * D2R, degrees[2] * D2R, ROTATION_ORDER));
+
 function createPlaceholder() {
   const box = new THREE.Mesh(
     new THREE.BoxGeometry(0.6, 0.6, 0.6).translate(0, 0.3, 0),
@@ -68,8 +85,19 @@ export class SceneEditor {
       if (event.value) this.dragStart = this.selectedRuntime?.root.matrix.clone();
       else this.finishDrag();
     });
-    this.gizmo.addEventListener('objectChange', () => this.emit('dragging'));
+    this.gizmo.addEventListener('objectChange', () => {
+      this.updateSnap();
+      this.emit('dragging');
+    });
     this.applyGizmoSettings();
+    this.snapMarker = createSnapMarker();
+    scene.add(this.snapMarker);
+    this.snapCandidate = null;
+    // Holding Alt while dragging moves freely, without snapping.
+    this.altHeld = false;
+    window.addEventListener('keydown', (event) => { if (event.key === 'Alt') this.altHeld = true; });
+    window.addEventListener('keyup', (event) => { if (event.key === 'Alt') this.altHeld = false; });
+    window.addEventListener('blur', () => { this.altHeld = false; });
   }
 
   // ---- Events -------------------------------------------------------------------------------
@@ -117,6 +145,8 @@ export class SceneEditor {
     this.document = next;
     const reconciling = this.reconcile({ applyPoses: false });
     if (this.selectedId && !this.item(this.selectedId)) this.select(null);
+    // Locking, mounting or attaching the selected item changes whether it can be moved.
+    else this.updateGizmo();
     this.emit('document');
     this.emit('history');
     return { result, ready: reconciling };
@@ -146,6 +176,7 @@ export class SceneEditor {
     this.document = step.document;
     this.reconcile({ applyPoses: true });
     if (this.selectedId && !this.item(this.selectedId)) this.select(null);
+    else this.updateGizmo();
     this.emit('document');
     this.emit('history');
   }
@@ -297,8 +328,172 @@ export class SceneEditor {
     runtime.component?.setVisualState?.(item);
   }
 
-  // Mounted and attached items hang under what they follow (filled in by anchors, phase 2c).
-  applyLinks() {}
+  // Mounted and attached items hang under what they follow: a tool under the robot joint that
+  // carries its flange, an attached item under its target (or one of its joints). Everything
+  // else sits directly in the scene at its own placement.
+  applyLinks() {
+    this.document.items.forEach((item) => {
+      const runtime = this.runtimes.get(item.id);
+      if (!runtime || runtime.destroyed) return;
+      const link = item.mount || item.attach;
+      const target = link ? this.runtimes.get(link.to) : null;
+      let parent = this.root;
+      let local = null;
+      if (link && target && !target.destroyed && target.kind !== 'loading') {
+        if (item.mount) {
+          const targetAnchor = anchorNamed(target, item.mount.anchor);
+          const own = runtime.kind === 'component' ? runtime.component.anchors?.[item.mount.own] : null;
+          if (targetAnchor && own) {
+            parent = targetAnchor.object;
+            local = alignment({ position: toVector(own.position), direction: toVector(own.direction) }, targetAnchor);
+          }
+        } else {
+          const joint = item.attach.joint ? target.asset?.rig?.jointsById.get(item.attach.joint) : null;
+          parent = joint?.group || target.root;
+          local = { position: toVector(item.attach.position), quaternion: toQuaternion(item.attach.rotation) };
+        }
+      }
+      // A link whose target isn't ready yet: wait out of sight rather than flash at the origin.
+      runtime.root.visible = !item.hidden && (!link || Boolean(local));
+      if (runtime.root.parent !== parent) parent.add(runtime.root);
+      if (local) {
+        runtime.root.position.copy(local.position);
+        runtime.root.quaternion.copy(local.quaternion);
+      } else if (!link) {
+        runtime.root.position.fromArray(item.position);
+        runtime.root.rotation.set(item.rotation[0] * D2R, item.rotation[1] * D2R, item.rotation[2] * D2R, ROTATION_ORDER);
+      }
+    });
+    this.applyMountedTools();
+  }
+
+  // A machine with a tool mounted on it reaches with that tool's tip. The override belongs to
+  // this copy only and is never saved into the model's rig.
+  applyMountedTools() {
+    this.runtimes.forEach((runtime) => {
+      const asset = runtime.asset;
+      if (!asset?.rig) return;
+      const mounted = this.items.find((item) => item.mount?.to === runtime.id && item.mount.anchor === 'tool');
+      const toolRuntime = mounted && this.runtimes.get(mounted.id);
+      const tip = toolRuntime && anchorsOf(toolRuntime).find((anchor) => anchor.type === 'tool-tip');
+      const flange = tip && anchorNamed(runtime, 'tool');
+      if (tip && flange && toolRuntime.root.parent === flange.object) {
+        asset.originalTools ??= structuredClone(asset.rig.tools);
+        asset.flangeTool ??= asset.originalTools[0];
+        const group = flange.object;
+        toolRuntime.root.updateMatrix();
+        const local = tip.position.clone().applyMatrix4(toolRuntime.root.matrix);
+        const localDirection = tip.direction.clone().applyQuaternion(toolRuntime.root.quaternion);
+        const { point, direction } = asset.rig.withRestPose(() => {
+          group.updateMatrixWorld(true);
+          const contentInverse = asset.content.matrixWorld.clone().invert();
+          return {
+            point: local.clone().applyMatrix4(group.matrixWorld).applyMatrix4(contentInverse),
+            direction: localDirection.clone().transformDirection(group.matrixWorld).transformDirection(contentInverse),
+          };
+        });
+        const tool = {
+          id: 'mounted_tool',
+          name: `${mounted.name} tip`,
+          joint: flange.jointId,
+          frame: 'model',
+          point: point.toArray().map((value) => Math.round(value * 1e6) / 1e6),
+          direction: direction.toArray().map((value) => Math.round(value * 1e6) / 1e6),
+        };
+        asset.toolLockedBy = mounted.name;
+        if (JSON.stringify(asset.rig.tools) !== JSON.stringify([tool])) asset.rig.setTools([tool]);
+      } else if (asset.originalTools) {
+        const original = asset.originalTools;
+        delete asset.originalTools;
+        delete asset.toolLockedBy;
+        asset.rig.setTools(original);
+      }
+    });
+  }
+
+  // ---- Snapping while dragging ------------------------------------------------------------------------
+
+  updateSnap() {
+    const runtime = this.selectedRuntime;
+    const candidate = runtime && !this.altHeld && this.tool === 'move'
+      ? findSnap(runtime, this.runtimes, { tolerance: Math.max(0.35, this.snap * 2), exclude: dependentsOf(this.document, runtime.id) })
+      : null;
+    this.snapCandidate = candidate;
+    this.snapMarker.visible = Boolean(candidate);
+    if (candidate) {
+      this.snapMarker.position.copy(candidate.targetWorld.position);
+      this.snapMarker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), candidate.targetWorld.direction);
+      const target = this.item(candidate.targetId);
+      this.emit('status', candidate.target.type === 'tool-flange'
+        ? `Release to mount on ${target?.name} (hold Alt to place freely).`
+        : `Release to line up with ${target?.name} (hold Alt to place freely).`);
+    }
+  }
+
+  // ---- Mounting and attaching ---------------------------------------------------------------------------
+
+  // Mounts an item's anchor onto another item's anchor (a gripper onto a robot's flange).
+  mountItem(id, targetId, targetAnchor = 'tool', ownAnchor = null) {
+    const runtime = this.runtimes.get(id);
+    const own = ownAnchor || anchorsOf(runtime).find((anchor) => anchor.type === 'tool-mount')?.name;
+    const item = this.item(id);
+    const target = this.item(targetId);
+    if (!item || !target || !own) return false;
+    this.commit(`Mount ${item.name} on ${target.name}`, (document) => {
+      const editable = document.items.find((candidate) => candidate.id === id);
+      delete editable.attach;
+      editable.mount = { to: targetId, anchor: targetAnchor, own };
+    });
+    return true;
+  }
+
+  // Makes an item follow another item (or one of its joints), staying exactly where it is now.
+  attachItem(id, targetId, jointId = null) {
+    const runtime = this.runtimes.get(id);
+    const target = this.runtimes.get(targetId);
+    const item = this.item(id);
+    if (!runtime || !target || !item || dependentsOf(this.document, id).has(targetId) || id === targetId) return false;
+    const parent = jointId ? target.asset?.rig?.jointsById.get(jointId)?.group : target.root;
+    if (!parent) return false;
+    parent.updateMatrixWorld(true);
+    runtime.root.updateMatrixWorld(true);
+    const relative = parent.matrixWorld.clone().invert().multiply(runtime.root.matrixWorld);
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    relative.decompose(position, quaternion, new THREE.Vector3());
+    const euler = new THREE.Euler().setFromQuaternion(quaternion, ROTATION_ORDER);
+    const label = jointId ? `${this.item(targetId).name} › ${target.asset.rig.jointsById.get(jointId).name}` : this.item(targetId).name;
+    this.commit(`Attach ${item.name} to ${label}`, (document) => {
+      const editable = document.items.find((candidate) => candidate.id === id);
+      delete editable.mount;
+      editable.attach = {
+        to: targetId,
+        joint: jointId,
+        position: position.toArray().map((value) => round(value)),
+        rotation: [euler.x, euler.y, euler.z].map((value) => round(value / D2R, 3)),
+      };
+    });
+    return true;
+  }
+
+  // Unmounts or detaches an item, leaving it where it is in the world.
+  unlinkItem(id) {
+    const runtime = this.runtimes.get(id);
+    const item = this.item(id);
+    if (!runtime || !item || (!item.mount && !item.attach)) return;
+    runtime.root.updateMatrixWorld(true);
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    runtime.root.matrixWorld.decompose(position, quaternion, new THREE.Vector3());
+    const euler = new THREE.Euler().setFromQuaternion(quaternion, ROTATION_ORDER);
+    this.commit(`${item.mount ? 'Unmount' : 'Detach'} ${item.name}`, (document) => {
+      const editable = document.items.find((candidate) => candidate.id === id);
+      delete editable.mount;
+      delete editable.attach;
+      editable.position = position.toArray().map((value) => round(value));
+      editable.rotation = [euler.x, euler.y, euler.z].map((value) => round(value / D2R, 3));
+    });
+  }
 
   // ---- Commands ----------------------------------------------------------------------------------
 
@@ -435,12 +630,31 @@ export class SceneEditor {
 
   finishDrag() {
     const runtime = this.selectedRuntime;
+    const snap = this.snapCandidate;
+    this.snapCandidate = null;
+    this.snapMarker.visible = false;
     if (!runtime || !this.dragStart) return;
     const moved = !runtime.root.matrix.equals(this.dragStart);
     this.dragStart = null;
     if (!moved) return;
+    if (snap && snap.target.type === 'tool-flange') {
+      this.mountItem(runtime.id, snap.targetId, snap.target.name, snap.own.name);
+      return;
+    }
+    if (snap) {
+      // Line the anchors up: the item turns about the vertical so its end faces the other one.
+      const { position, quaternion } = alignment(
+        { position: snap.own.position, direction: snap.own.direction },
+        snap.targetWorld,
+        { upright: true },
+      );
+      runtime.root.position.copy(position);
+      runtime.root.quaternion.copy(quaternion);
+      const placement = this.placementOf(runtime.root);
+      this.updateItem(runtime.id, placement, `Snap ${this.selectedItem.name} to ${this.item(snap.targetId).name}`);
+      return;
+    }
     const { position, rotation } = this.placementOf(runtime.root);
-    // A drag that ends on a snap point is handled by the anchors (phase 2c); this is plain placement.
     this.updateItem(runtime.id, { position, rotation }, this.tool === 'rotate' ? `Turn ${this.selectedItem.name}` : `Move ${this.selectedItem.name}`);
   }
 

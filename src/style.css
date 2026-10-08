@@ -1946,3 +1946,17 @@ body[data-mode="scene"] .reach-bar { top: 3.65rem; }
 .add-drawer.is-placing .add-grid { display: none; }
 .add-drawer.is-placing .add-hint { color: #dff8fb; font-size: 0.7rem; }
 #viewport:has(.add-drawer.is-placing) .viewport-status { bottom: 3.6rem; }
+
+.connection-row { grid-template-columns: minmax(0, 1fr) auto; grid-auto-flow: row; }
+.connection-row select {
+  min-width: 0;
+  min-height: 1.85rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid #50545a;
+  border-radius: 3px;
+  background: #34373b;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.7rem;
+}
+.connection-row:has(> select:only-child) { grid-template-columns: minmax(0, 1fr); }
