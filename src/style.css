@@ -1491,6 +1491,7 @@ canvas { display: block; }
 
 .reach-status[data-tone="ok"] { color: #7fe0a8; }
 .reach-status[data-tone="warn"] { color: #f2c46d; }
+.reach-status[data-tone="floor"] { color: #f5994a; }
 .reach-status[data-tone="fail"] { color: #f39a9a; }
 .reach-status[data-tone="muted"] { color: var(--subtle); }
 

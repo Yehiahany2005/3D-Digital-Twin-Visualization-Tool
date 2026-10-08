@@ -120,7 +120,7 @@ export class ReachPanel {
     this.unsubscribePlayer = asset.player.onChange((status) => {
       if (status === 'Idle' && this.reaching) {
         this.reaching = false;
-        this.showStatus(this.reachedText || 'Reached.', 'ok');
+        this.showStatus(this.reachedText || 'Reached.', this.reachedTone || 'ok');
       }
     });
     this.renderTip();
@@ -456,9 +456,9 @@ export class ReachPanel {
     this.describe(result, target, orient, true);
     if (result.status !== 'reachable') return;
     this.reaching = true;
-    this.reachedText = result.warnings.includes('through-floor')
-      ? 'Reached, but part of the machine dips below the floor.'
-      : 'Reached.';
+    const throughFloor = result.warnings.includes('through-floor');
+    this.reachedText = throughFloor ? 'Reached, but part of the machine dips below the floor.' : 'Reached.';
+    this.reachedTone = throughFloor ? 'floor' : 'ok';
     await this.asset.player.moveTo(result.values, { label: 'Reaching' });
   }
 
@@ -469,11 +469,15 @@ export class ReachPanel {
     let text;
     let action = null;
     let run = null;
+    let tone = null;
     switch (result.status) {
       case 'reachable': {
         const warnings = result.warnings || [];
         state = warnings.length ? 'warn' : 'ok';
-        if (warnings.includes('through-floor')) text = 'Reachable, but part of the machine would dip below the floor.';
+        if (warnings.includes('through-floor')) {
+          text = 'Reachable, but part of the machine would dip below the floor.';
+          tone = 'floor';
+        }
         else if (warnings.includes('big-move')) text = 'Reachable with a big swing (over 120° on one joint).';
         else text = clicked ? 'Moving there…' : 'Reachable: click to move there.';
         if (clicked && warnings.length) text += ' Moving…';
@@ -507,7 +511,7 @@ export class ReachPanel {
       }
     }
     if (resolved) this.showMarker(target, state, orient);
-    this.showStatus(text, state === 'ok' ? 'ok' : state === 'warn' ? 'warn' : 'fail', action, run);
+    this.showStatus(text, tone || (state === 'ok' ? 'ok' : state === 'warn' ? 'warn' : 'fail'), action, run);
   }
 
   // ---- Per frame -----------------------------------------------------------------------
