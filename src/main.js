@@ -39,6 +39,8 @@ import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
 import { DigitalTwinViewManager } from './scene/DigitalTwinViewManager.js';
 import { fitEnvironment } from './scene/fitEnvironment.js';
 import { StationScene } from './station/StationScene.js';
+import { OilFillingStation } from './station/oil/OilFillingStation.js';
+import { CasePackingStation } from './station/packing/CasePackingStation.js';
 import { lastAsset, listStoredImports, rememberLastAsset } from './assets/ImportStore.js';
 import { getAssetConfig } from './assets/AssetRegistry.js';
 import { SceneMode } from './studio/SceneMode.js';
@@ -81,6 +83,30 @@ const stationPositionError = document.querySelector('[data-station-position-erro
 const stationBottomHeight = document.querySelector('[data-station-bottom-height]');
 const stationBoxRotation = document.querySelector('[data-station-box-rotation]');
 const stationState = document.querySelector('[data-station-state]');
+const oilFields = {
+  state: document.querySelector('[data-oil-state]'),
+  step: document.querySelector('[data-oil-step]'),
+  conveyor: document.querySelector('[data-oil-conveyor]'),
+  outfeed: document.querySelector('[data-oil-outfeed]'),
+  fillingHead: document.querySelector('[data-oil-filling-head]'),
+  valves: document.querySelector('[data-oil-valves]'),
+  cappingHead: document.querySelector('[data-oil-capping-head]'),
+  fillLevel: document.querySelector('[data-oil-fill-level]'),
+  counts: document.querySelector('[data-oil-counts]'),
+  output: document.querySelector('[data-oil-output]'),
+  cycles: document.querySelector('[data-oil-cycles]'),
+};
+const packingFields = {
+  state: document.querySelector('[data-packing-state]'),
+  step: document.querySelector('[data-packing-step]'),
+  input: document.querySelector('[data-packing-input]'),
+  boxConveyor: document.querySelector('[data-packing-box-conveyor]'),
+  robot: document.querySelector('[data-packing-robot]'),
+  gripper: document.querySelector('[data-packing-gripper]'),
+  cansInBox: document.querySelector('[data-packing-cans-in-box]'),
+  completed: document.querySelector('[data-packing-completed]'),
+  cycles: document.querySelector('[data-packing-cycles]'),
+};
 const sceneManager = new SceneManager();
 const cameraManager = new CameraManager(container);
 const rendererManager = new RendererManager(container);
@@ -136,6 +162,56 @@ stationScene.setCycleUpdateHandler((cycle) => {
   stationState.textContent = cycle.state;
   stationStart.disabled = cycle.state !== 'IDLE' && cycle.state !== 'COMPLETE';
 });
+
+// Procedural stations (Station 1 oil filling, Station 2 case packing), independent from the
+// robot station (Station 3). Each has its own sidebar card with Start / Reset / Speed.
+const stationOptions = { scene: sceneManager.scene, renderer: rendererManager.renderer, cameraManager, controls };
+const proceduralStations = {
+  'oil-station': {
+    station: new OilFillingStation(stationOptions),
+    prefix: 'oil',
+    render: (status) => {
+      oilFields.state.textContent = status.state;
+      oilFields.step.textContent = status.step;
+      oilFields.conveyor.textContent = status.mainConveyor;
+      oilFields.outfeed.textContent = status.outfeedConveyor;
+      oilFields.fillingHead.textContent = status.fillingHead;
+      oilFields.valves.textContent = status.valves;
+      oilFields.cappingHead.textContent = status.cappingHead;
+      oilFields.fillLevel.textContent = `${Math.round(status.fillLevel * 100)} %`;
+      oilFields.counts.textContent = `${status.filledCount} / ${status.cappedCount}`;
+      oilFields.output.textContent = String(status.outputCount);
+      oilFields.cycles.textContent = String(status.cycles);
+    },
+  },
+  'packing-station': {
+    station: new CasePackingStation(stationOptions),
+    prefix: 'packing',
+    render: (status) => {
+      packingFields.state.textContent = status.state.replace(/_/g, ' ');
+      packingFields.step.textContent = status.step;
+      packingFields.input.textContent = status.inputConveyor;
+      packingFields.boxConveyor.textContent = status.boxConveyor;
+      packingFields.robot.textContent = status.robot;
+      packingFields.gripper.textContent = status.gripper;
+      packingFields.cansInBox.textContent = `${status.cansInBox} / 4`;
+      packingFields.completed.textContent = String(status.boxesCompleted);
+      packingFields.cycles.textContent = String(status.cycles);
+    },
+  },
+};
+Object.values(proceduralStations).forEach((entry) => {
+  entry.card = document.querySelector(`[data-${entry.prefix}-card]`);
+  entry.start = document.querySelector(`[data-${entry.prefix}-start]`);
+  entry.reset = document.querySelector(`[data-${entry.prefix}-reset]`);
+  entry.speed = document.querySelector(`[data-${entry.prefix}-speed]`);
+  entry.exit = document.querySelector(`[data-${entry.prefix}-exit]`);
+  entry.station.setCycleUpdateHandler(({ status, running }) => {
+    entry.render(status);
+    entry.start.disabled = running;
+  });
+});
+let activeProceduralId = null;
 
 const jointControls = new JointControls({
   container: document.querySelector('[data-joints-list]'),
@@ -231,6 +307,19 @@ function fitMachineEnvironment(asset) {
     grid: visualizationManager.grid,
     lightGroups: [lightingGroup, visualizationManager.digitalLights],
   });
+
+  jointControls.setRig(asset.rig, asset.player);
+  commandsPanel.setRig(asset.rig, asset.player);
+  rigEditor.setAsset(asset);
+  animationEditor.setAsset(asset);
+  assetSelectionPanel.update(asset);
+  if (stationMode && asset.config.id === 'abb_irb6760') void stationScene.show(asset);
+  if (activeProceduralId) {
+    // A model that finished loading after a procedural station opened stays hidden behind it.
+    asset.model.visible = false;
+    fitProceduralEnvironment(proceduralStations[activeProceduralId].station);
+    assetSelectionPanel.setCurrent(activeProceduralId);
+  }
 }
 
 const assetManager = new AssetManager({
@@ -257,9 +346,11 @@ const assetSelectionPanel = new AssetSelectionPanel({
   restartButton: document.querySelector('[data-animation-restart]'),
   messageElement: document.querySelector('[data-asset-message]'),
   onStationSelect: openStation,
-  // Picking a model while the station runs leaves the station first.
+  onProceduralStationSelect: openProceduralStation,
+  // Picking a model while a station runs leaves the station first.
   onAssetSelect: async (id) => {
     if (stationMode) closeStation();
+    if (activeProceduralId) closeProceduralStation();
     await assetManager.select(id);
   },
   defaultAssetId: DEFAULT_ASSET_ID,
@@ -280,6 +371,7 @@ async function startUp() {
 void startUp();
 
 async function openStation() {
+  if (activeProceduralId) closeProceduralStation();
   stationMode = true;
   // The station cycle drives the robot itself, so sequences and Reach would fight it.
   animationEditorCard.hidden = true;
@@ -310,6 +402,67 @@ function closeStation() {
   assetSelectionPanel.setCurrent(activeAsset?.config.id || DEFAULT_ASSET_ID);
   stationDebug.checked = false;
 }
+
+// Fits floor, fog and shadows to a procedural station, then tightens the shadow frustum so the
+// ~14 m cell keeps crisp shadows.
+function fitProceduralEnvironment(station) {
+  const lightGroups = [lightingGroup, visualizationManager?.digitalLights];
+  fitEnvironment({ model: station.root, scene: sceneManager.scene, floor, grid: visualizationManager?.grid, lightGroups });
+  const radius = station.getBounds().getBoundingSphere(new THREE.Sphere()).radius;
+  lightGroups.forEach((group) => group?.traverse((light) => {
+    if (!light.isDirectionalLight || !light.castShadow) return;
+    const camera = light.shadow.camera;
+    camera.left = -radius;
+    camera.right = radius;
+    camera.top = radius;
+    camera.bottom = -radius;
+    camera.updateProjectionMatrix();
+    light.shadow.normalBias = 0.02;
+  }));
+}
+
+function openProceduralStation(id) {
+  if (stationMode) closeStation();
+  if (activeProceduralId) closeProceduralStation();
+  const entry = proceduralStations[id];
+  activeProceduralId = id;
+  activeAsset?.player?.stop();
+  if (activeAsset) activeAsset.model.visible = false;
+  animationEditorCard.hidden = true;
+  entry.station.show();
+  fitProceduralEnvironment(entry.station);
+  entry.station.setCycleSpeed(Number(entry.speed.value));
+  entry.card.hidden = false;
+  entry.card.open = true;
+  assetSelectionPanel.setCurrent(id);
+}
+
+function closeProceduralStation() {
+  const entry = proceduralStations[activeProceduralId];
+  activeProceduralId = null;
+  entry.station.hide();
+  entry.card.hidden = true;
+  animationEditorCard.hidden = false;
+  if (activeAsset) {
+    activeAsset.model.visible = true;
+    fitEnvironment({
+      model: activeAsset.model,
+      scene: sceneManager.scene,
+      floor,
+      grid: visualizationManager?.grid,
+      lightGroups: [lightingGroup, visualizationManager?.digitalLights],
+    });
+    cameraManager.frameObject(activeAsset.model, controls);
+  }
+  assetSelectionPanel.setCurrent(activeAsset?.config.id || DEFAULT_ASSET_ID);
+}
+
+Object.values(proceduralStations).forEach(({ station, start, reset, speed, exit }) => {
+  exit.addEventListener('click', closeProceduralStation);
+  start.addEventListener('click', () => station.startCycle());
+  reset.addEventListener('click', () => station.resetCycle());
+  speed.addEventListener('change', () => station.setCycleSpeed(Number(speed.value)));
+});
 
 stationExit.addEventListener('click', closeStation);
 stationDebug.addEventListener('change', () => stationScene.setDebug(stationDebug.checked));
@@ -418,6 +571,7 @@ function render() {
   sceneMode.update(deltaTime);
   assetManager.update(deltaTime);
   stationScene.update(deltaTime);
+  Object.values(proceduralStations).forEach(({ station }) => station.update(deltaTime));
   visualizationManager?.update(deltaTime);
   controls.update();
   rendererManager.renderer.render(sceneManager.scene, cameraManager.camera);
