@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { createProceduralPallet } from '../../station/ProceduralPallet.js';
-import { createProceduralBox } from '../../station/ProceduralBox.js';
+import { createProceduralPallet } from '../../station/station-3/ProceduralPallet.js';
+import { createProceduralBox } from '../../station/station-3/ProceduralBox.js';
 import { anchor, collider, disposeObject, number, toggle } from './shared.js';
 
 // Wooden pallet. Origin: middle of the pallet, on the floor.

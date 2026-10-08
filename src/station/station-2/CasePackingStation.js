@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { CASE_PACKING_DEFINITION, CASE_PACKING_STATES } from './CasePackingDefinition.js';
-import { createOilStationMaterials } from '../oil/OilMaterials.js';
-import { group } from '../oil/OilGeometry.js';
-import { createCapFactory, createJerryCanFactory } from '../oil/JerryCan.js';
-import { createSensors } from '../oil/OilSensors.js';
-import { createControlPanel } from '../oil/ControlPanel.js';
-import { createStationBase } from '../oil/StationBase.js';
+import { createOilStationMaterials } from '../station-1/OilMaterials.js';
+import { group } from '../station-1/OilGeometry.js';
+import { createCapFactory, createJerryCanFactory } from '../station-1/JerryCan.js';
+import { createSensors } from '../station-1/OilSensors.js';
+import { createControlPanel } from '../station-1/ControlPanel.js';
+import { createStationBase } from '../station-1/StationBase.js';
 import { createCardboardCaseFactory, getCardboardMaterials } from './CardboardCase.js';
 import { createPickAndPlaceRobot } from './PickAndPlaceRobot.js';
 import { createBoxConveyors, createInputConveyor } from './PackingLineEquipment.js';

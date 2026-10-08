@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { StepSequencer } from '../common/StepSequencer.js';
-import { smoother } from '../oil/OilGeometry.js';
+import { smoother } from '../station-1/OilGeometry.js';
 import { CASE_PACKING_SPEEDS, CASE_PACKING_STATES as STATES } from './CasePackingDefinition.js';
 
 /** Distance over which an accumulating object eases into its stop (m). */

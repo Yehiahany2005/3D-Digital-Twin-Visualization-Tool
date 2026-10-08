@@ -1,5 +1,5 @@
-import { STATION_DEFINITION } from '../StationDefinition.js';
-import { OIL_STATION_DEFINITION } from '../oil/OilFillingDefinition.js';
+import { STATION_DEFINITION } from '../station-3/StationDefinition.js';
+import { OIL_STATION_DEFINITION } from '../station-1/OilFillingDefinition.js';
 
 /** Process states of the case packer, in cycle order. */
 export const CASE_PACKING_STATES = Object.freeze({

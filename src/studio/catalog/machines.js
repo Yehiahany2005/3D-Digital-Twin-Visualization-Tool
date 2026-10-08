@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { createAssetWrapMachine } from '../../station/AssetWrapMachine.js';
-import { createVacuumGripper } from '../../station/StationCycle.js';
+import { createAssetWrapMachine } from '../../station/station-3/AssetWrapMachine.js';
+import { createVacuumGripper } from '../../station/station-3/StationCycle.js';
 import { anchor, collider, disposeObject, number, toggle } from './shared.js';
 
 // Stretch wrapper (from Wrapping.STEP). Origin: middle of the turntable, on the floor.

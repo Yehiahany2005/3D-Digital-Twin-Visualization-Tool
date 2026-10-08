@@ -80,6 +80,32 @@
             </div>
           </details>
 
+          <details class="sidebar-card station-card" data-factory-card hidden>
+            <summary><span class="card-title"><i data-lucide="move-3d" aria-hidden="true"></i>Factory · Lubricant Line</span><span class="summary-chevron" aria-hidden="true"></span></summary>
+            <div class="card-content">
+              <p class="editor-hint">Raw materials → filling → capping → case packing → palletizing → wrapping → finished pallet.</p>
+              <div class="station-actions">
+                <button type="button" class="primary-button" data-factory-start>Start</button>
+                <button type="button" data-factory-reset>Reset</button>
+              <label>Speed <select data-factory-speed><option value="1">1×</option><option value="2">2×</option><option value="10">10× (debug)</option></select></label>
+              </div>
+              <dl class="station-status" aria-live="polite">
+                <div><dt>Line State</dt><dd data-factory-state>IDLE</dd></div>
+                <div><dt>Jerry Can Supply</dt><dd data-factory-can-stock>—</dd></div>
+                <div><dt>Carton Supply</dt><dd data-factory-case-stock>—</dd></div>
+                <div><dt>Station 1</dt><dd data-factory-station1>—</dd></div>
+                <div><dt>Transfer 1 → 2</dt><dd data-factory-can-transfer>—</dd></div>
+                <div><dt>Station 2</dt><dd data-factory-station2>—</dd></div>
+                <div><dt>Transfer 2 → 3</dt><dd data-factory-case-transfer>—</dd></div>
+                <div><dt>Station 3</dt><dd data-factory-station3>—</dd></div>
+                <div><dt>Cans Filled / Capped</dt><dd data-factory-filled>0 / 0</dd></div>
+                <div><dt>Cases Packed</dt><dd data-factory-packed>0</dd></div>
+                <div><dt>Cases on Pallet</dt><dd data-factory-pallet>0 / 27</dd></div>
+              </dl>
+              <button type="button" class="import-button" data-factory-exit>Leave Factory</button>
+            </div>
+          </details>
+
           <details class="sidebar-card station-card" data-oil-card hidden>
             <summary><span class="card-title"><i data-lucide="move-3d" aria-hidden="true"></i>Station 1 · Oil Filling</span><span class="summary-chevron" aria-hidden="true"></span></summary>
             <div class="card-content">

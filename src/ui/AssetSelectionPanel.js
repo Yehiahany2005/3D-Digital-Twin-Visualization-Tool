@@ -10,13 +10,14 @@ const PROCEDURAL_STATIONS = [
   { id: 'oil-station', name: 'Station 1 · Oil Filling & Capping', type: 'Procedural lubricant filling and capping line' },
   { id: 'packing-station', name: 'Station 2 · Jerry Can Case Packing', type: 'Gantry robot packs 4 jerry cans per case' },
 ];
-const SCENES = [...PROCEDURAL_STATIONS, STATION];
+const FACTORY = { id: 'factory', name: 'Factory · Lubricant Line', type: 'Station 1 → 2 → 3 as one continuous production line' };
+const SCENES = [FACTORY, ...PROCEDURAL_STATIONS, STATION];
 
 // The asset picker in the header: a button showing the current asset that opens a searchable
 // menu grouped into scenes, built-in models and models imported on this device. It also fills
 // the Asset Information and Asset Animations cards for the loaded asset.
 export class AssetSelectionPanel {
-  constructor({ assetManager, nameElement, typeElement, animationCountElement, animationCard, animationSelect, playButton, pauseButton, restartButton, messageElement, onStationSelect, onProceduralStationSelect, onAssetSelect, defaultAssetId }) {
+  constructor({ assetManager, nameElement, typeElement, animationCountElement, animationCard, animationSelect, playButton, pauseButton, restartButton, messageElement, onStationSelect, onProceduralStationSelect, onFactorySelect, onAssetSelect, defaultAssetId }) {
     this.assetManager = assetManager;
     this.nameElement = nameElement;
     this.typeElement = typeElement;
@@ -29,6 +30,7 @@ export class AssetSelectionPanel {
     this.messageElement = messageElement;
     this.onStationSelect = onStationSelect;
     this.onProceduralStationSelect = onProceduralStationSelect;
+    this.onFactorySelect = onFactorySelect;
     this.onAssetSelect = onAssetSelect;
     this.defaultAssetId = defaultAssetId;
     this.currentId = null;
@@ -191,6 +193,7 @@ export class AssetSelectionPanel {
     this.setStatus(null);
     this.setLoading(true);
     if (id === STATION.id) await this.onStationSelect?.();
+    else if (id === FACTORY.id) await this.onFactorySelect?.();
     else if (PROCEDURAL_STATIONS.some((scene) => scene.id === id)) await this.onProceduralStationSelect?.(id);
     else await this.selectAsset(id);
     this.setLoading(false);

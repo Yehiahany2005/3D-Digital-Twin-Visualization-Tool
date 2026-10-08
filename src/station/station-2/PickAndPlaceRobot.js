@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { box, cylinder, group, roundedBox } from '../oil/OilGeometry.js';
-import { createLampMaterial, setLamp } from '../oil/OilMaterials.js';
+import { box, cylinder, group, roundedBox } from '../station-1/OilGeometry.js';
+import { createLampMaterial, setLamp } from '../station-1/OilMaterials.js';
 
 const BEAM_OFFSET_X = 0.26;
 const MAST_LENGTH = 1.25;

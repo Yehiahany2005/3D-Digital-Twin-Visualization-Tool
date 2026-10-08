@@ -38,9 +38,11 @@ import { AssetManager } from './scene/AssetManager.js';
 import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
 import { DigitalTwinViewManager } from './scene/DigitalTwinViewManager.js';
 import { fitEnvironment } from './scene/fitEnvironment.js';
-import { StationScene } from './station/StationScene.js';
-import { OilFillingStation } from './station/oil/OilFillingStation.js';
-import { CasePackingStation } from './station/packing/CasePackingStation.js';
+import { StationScene } from './station/station-3/StationScene.js';
+import { OilFillingStation } from './station/station-1/OilFillingStation.js';
+import { CasePackingStation } from './station/station-2/CasePackingStation.js';
+import { LubricantFactory } from './station/factory/LubricantFactory.js';
+import { FactoryOverlay } from './station/factory/FactoryOverlay.js';
 import { lastAsset, listStoredImports, rememberLastAsset } from './assets/ImportStore.js';
 import { getAssetConfig } from './assets/AssetRegistry.js';
 import { SceneMode } from './studio/SceneMode.js';
@@ -213,6 +215,40 @@ Object.values(proceduralStations).forEach((entry) => {
 });
 let activeProceduralId = null;
 
+// Factory: Station 1 → Station 2 → Station 3 as one continuous lubricant line.
+const factoryCard = document.querySelector('[data-factory-card]');
+const factoryStart = document.querySelector('[data-factory-start]');
+const factoryReset = document.querySelector('[data-factory-reset]');
+const factorySpeed = document.querySelector('[data-factory-speed]');
+const factoryExit = document.querySelector('[data-factory-exit]');
+const factoryFields = Object.fromEntries([
+  'state', 'can-stock', 'case-stock', 'station1', 'can-transfer', 'station2', 'case-transfer', 'station3', 'filled', 'packed', 'pallet',
+].map((key) => [key, document.querySelector(`[data-factory-${key}]`)]));
+let factoryMode = false;
+const factory = new LubricantFactory({ scene: sceneManager.scene, renderer: rendererManager.renderer });
+const factoryOverlay = new FactoryOverlay({
+  container,
+  camera: cameraManager.camera,
+  controls,
+  domElement: rendererManager.renderer.domElement,
+  factory,
+});
+factory.onUpdate = (line) => {
+  const status = line.status;
+  factoryFields.state.textContent = status.state.replace(/_/g, ' ');
+  factoryFields['can-stock'].textContent = `${status.canStock} cans`;
+  factoryFields['case-stock'].textContent = `${status.caseStock} cartons`;
+  factoryFields.station1.textContent = status.station1;
+  factoryFields['can-transfer'].textContent = status.canTransfer;
+  factoryFields.station2.textContent = status.station2;
+  factoryFields['case-transfer'].textContent = status.caseTransfer;
+  factoryFields.station3.textContent = status.station3;
+  factoryFields.filled.textContent = `${status.cansFilled} / ${status.cansCapped}`;
+  factoryFields.packed.textContent = String(status.casesPacked);
+  factoryFields.pallet.textContent = `${status.palletBoxes} / ${status.palletTotal}`;
+  factoryStart.disabled = line.running;
+};
+
 const jointControls = new JointControls({
   container: document.querySelector('[data-joints-list]'),
   filter: (joint) => joint.kind === 'joint',
@@ -347,8 +383,10 @@ const assetSelectionPanel = new AssetSelectionPanel({
   messageElement: document.querySelector('[data-asset-message]'),
   onStationSelect: openStation,
   onProceduralStationSelect: openProceduralStation,
+  onFactorySelect: openFactory,
   // Picking a model while a station runs leaves the station first.
   onAssetSelect: async (id) => {
+    if (factoryMode) closeFactory();
     if (stationMode) closeStation();
     if (activeProceduralId) closeProceduralStation();
     await assetManager.select(id);
@@ -371,6 +409,7 @@ async function startUp() {
 void startUp();
 
 async function openStation() {
+  if (factoryMode) closeFactory();
   if (activeProceduralId) closeProceduralStation();
   stationMode = true;
   // The station cycle drives the robot itself, so sequences and Reach would fight it.
@@ -383,19 +422,22 @@ async function openStation() {
   assetSelectionPanel.setCurrent('station');
 }
 
+// Puts the robot a station cell borrowed back into the normal asset view.
+function returnRobotToAssetView(robot) {
+  if (!robot || !activeAsset) return;
+  // The station moved the robot through its base joints; put those back too, or the next
+  // joint change would send the robot back to its station spot.
+  activeAsset.rig.setValues({ 'base.x': 0, 'base.y': 0, 'base.z': 0, 'base.yaw': 0 });
+  robot.position.set(0, 0, 0);
+  robot.rotation.set(0, 0, 0);
+  assetManager.applyPlacement(activeAsset);
+  sceneManager.add(robot);
+  cameraManager.frameObject(robot, controls);
+}
+
 function closeStation() {
   stationMode = false;
-  const robot = stationScene.hide();
-  if (robot && activeAsset) {
-    // The station moved the robot through its base joints; put those back too, or the next
-    // joint change would send the robot back to its station spot.
-    activeAsset.rig.setValues({ 'base.x': 0, 'base.y': 0, 'base.z': 0, 'base.yaw': 0 });
-    robot.position.set(0, 0, 0);
-    robot.rotation.set(0, 0, 0);
-    assetManager.applyPlacement(activeAsset);
-    sceneManager.add(robot);
-    cameraManager.frameObject(robot, controls);
-  }
+  returnRobotToAssetView(stationScene.hide());
   stationCard.hidden = true;
   animationEditorCard.hidden = false;
   reachPanel.setHidden(false);
@@ -422,6 +464,7 @@ function fitProceduralEnvironment(station) {
 }
 
 function openProceduralStation(id) {
+  if (factoryMode) closeFactory();
   if (stationMode) closeStation();
   if (activeProceduralId) closeProceduralStation();
   const entry = proceduralStations[id];
@@ -456,6 +499,51 @@ function closeProceduralStation() {
   }
   assetSelectionPanel.setCurrent(activeAsset?.config.id || DEFAULT_ASSET_ID);
 }
+
+async function openFactory() {
+  if (stationMode) closeStation();
+  if (activeProceduralId) closeProceduralStation();
+  factoryMode = true;
+  // Station 3's cycle drives the robot, so sequences and Reach would fight it.
+  animationEditorCard.hidden = true;
+  reachPanel.setHidden(true);
+  await assetManager.select('abb_irb6760');
+  if (!factoryMode || activeAsset?.config.id !== 'abb_irb6760') return;
+  activeAsset.player?.stop();
+  activeAsset.model.visible = true;
+  await factory.show(activeAsset);
+  fitProceduralEnvironment(factory);
+  cameraManager.frameObject(factory.root, controls);
+  factoryOverlay.activate();
+  factory.setSpeed(Number(factorySpeed.value));
+  factoryCard.hidden = false;
+  factoryCard.open = true;
+  assetSelectionPanel.setCurrent('factory');
+}
+
+function closeFactory() {
+  factoryMode = false;
+  factoryOverlay.deactivate();
+  returnRobotToAssetView(factory.hide());
+  if (activeAsset) {
+    fitEnvironment({
+      model: activeAsset.model,
+      scene: sceneManager.scene,
+      floor,
+      grid: visualizationManager?.grid,
+      lightGroups: [lightingGroup, visualizationManager?.digitalLights],
+    });
+  }
+  factoryCard.hidden = true;
+  animationEditorCard.hidden = false;
+  reachPanel.setHidden(false);
+  assetSelectionPanel.setCurrent(activeAsset?.config.id || DEFAULT_ASSET_ID);
+}
+
+factoryExit.addEventListener('click', closeFactory);
+factoryStart.addEventListener('click', () => factory.start());
+factoryReset.addEventListener('click', () => factory.reset());
+factorySpeed.addEventListener('change', () => factory.setSpeed(Number(factorySpeed.value)));
 
 Object.values(proceduralStations).forEach(({ station, start, reset, speed, exit }) => {
   exit.addEventListener('click', closeProceduralStation);
@@ -572,6 +660,8 @@ function render() {
   assetManager.update(deltaTime);
   stationScene.update(deltaTime);
   Object.values(proceduralStations).forEach(({ station }) => station.update(deltaTime));
+  factory.update(deltaTime);
+  factoryOverlay.update(deltaTime);
   visualizationManager?.update(deltaTime);
   controls.update();
   rendererManager.renderer.render(sceneManager.scene, cameraManager.camera);

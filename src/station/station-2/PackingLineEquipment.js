@@ -1,5 +1,5 @@
-import { box, cylinder, group, roundedBox } from '../oil/OilGeometry.js';
-import { createBeltConveyor, createConveyorTunnel } from '../oil/OilConveyor.js';
+import { box, cylinder, group, roundedBox } from '../station-1/OilGeometry.js';
+import { createBeltConveyor, createConveyorTunnel } from '../station-1/OilConveyor.js';
 
 /**
  * Two-lane can input conveyor: belt, centre lane divider hung from overhead

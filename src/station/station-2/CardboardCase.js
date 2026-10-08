@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { createProceduralBox } from '../ProceduralBox.js';
-import { addMesh, group } from '../oil/OilGeometry.js';
+import { createProceduralBox } from '../station-3/ProceduralBox.js';
+import { addMesh, group } from '../station-1/OilGeometry.js';
 
 const OPEN_ANGLE = THREE.MathUtils.degToRad(110);
 
