@@ -6,6 +6,7 @@ import * as THREE from 'three';
 //    STEP/IGES imports, otherwise the smoothly connected triangles around it.
 // 2. Look at how the patch's normals are spread out:
 //    - all parallel                → flat face: axis = its normal, pivot = its centre
+//                                    (and the direction it is longest in, for slides)
 //    - all perpendicular to a line → round (cylinder/cone): axis = that line,
 //                                    pivot = the point all normals pass through
 //    - spread in every direction   → curved (sphere-like): pivot = its centre
@@ -178,11 +179,44 @@ function closestPointToNormalLines(samples, axis, anchor) {
   return rhs.applyMatrix3(matrix.invert());
 }
 
+// The direction a flat face is longest in (along a rail), from the face's second moment of
+// area. Exact per triangle, so a rectangle made of just two triangles still gives its long
+// side, not its diagonal. `elongation` compares the long side to the short one: near 1 the
+// face is square-ish and the direction means little.
+function faceLength(geometry, triangles, centre, normal) {
+  const position = geometry.attributes.position;
+  let totalArea = 0;
+  const moment = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  triangles.forEach((triangle) => {
+    triangleVertexIndices(geometry, triangle).forEach((vertex, index) => {
+      corners[index].fromBufferAttribute(position, vertex).sub(centre).projectOnPlane(normal);
+    });
+    const area = new THREE.Vector3().subVectors(corners[1], corners[0]).cross(new THREE.Vector3().subVectors(corners[2], corners[0])).length() / 2;
+    if (!(area > 0)) return;
+    totalArea += area;
+    // ∫ x xᵀ dA over a triangle = A/12 · (Σ vᵢ vᵢᵀ + (Σ vᵢ)(Σ vᵢ)ᵀ)
+    const sum = corners[0].clone().add(corners[1]).add(corners[2]);
+    const add = (v) => {
+      const d = [v.x, v.y, v.z];
+      for (let row = 0; row < 3; row += 1) for (let col = 0; col < 3; col += 1) moment[row][col] += (area / 12) * d[row] * d[col];
+    };
+    corners.forEach(add);
+    add(sum);
+  });
+  if (!(totalArea > 0)) return { along: null, elongation: 1 };
+  const [first, second] = symmetricEigen(moment);
+  const along = first.vector.clone().projectOnPlane(normal);
+  if (along.lengthSq() < 1e-12) return { along: null, elongation: 1 };
+  return { along: along.normalize(), elongation: Math.sqrt(first.value / Math.max(second.value, 1e-30)) };
+}
+
 // Results per geometry, keyed by every triangle of the analysed surface, so hovering anywhere
 // on a surface that was already analysed is instant.
 const resultCache = new WeakMap();
 
-// Returns { kind: 'round' | 'flat' | 'curved' | 'point', axis, pivot, radius?, triangles }.
+// Returns { kind: 'round' | 'flat' | 'curved' | 'point', axis, pivot, radius?, along?, elongation?, triangles }.
+// Flat faces also give `along`: the direction they are longest in, which is what a slide follows.
 export function analyzeSurface(mesh, seedTriangle) {
   const geometry = mesh.geometry;
   if (!resultCache.has(geometry)) resultCache.set(geometry, new Map());
@@ -218,7 +252,7 @@ function analyzeRegion(geometry, seedTriangle) {
 
   if (second.value < FLAT_THRESHOLD) {
     const axis = meanNormal.lengthSq() > 0 ? meanNormal.normalize() : seed.normal;
-    return withTriangles({ kind: 'flat', axis, pivot: centre, triangleCount: samples.length });
+    return withTriangles({ kind: 'flat', axis, pivot: centre, ...faceLength(geometry, triangles, centre, axis), triangleCount: samples.length });
   }
 
   if (third.value < ROUND_THRESHOLD) {

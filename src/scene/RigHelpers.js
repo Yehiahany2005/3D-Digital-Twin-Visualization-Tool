@@ -3,6 +3,7 @@ import * as THREE from 'three';
 const CLICK_TOLERANCE_PX = 5;
 const ACCENT = 0x69c7d3;
 const TARGET_COLOR = 0xf2b84b;
+const TRAVEL_COLOR = 0xb48cff;
 // Parts of the joint a follower (cylinder, rod) follows.
 export const LINK_COLOR = 0xb38cff;
 const DIM_COLOR = 0x111518;
@@ -208,8 +209,9 @@ function overlayMaterial(color) {
   return new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 });
 }
 
-// Arrow along the joint axis, a dot at the pivot, a ring for rotation, and an
-// optional marker for a linked joint's target point. Drawn on top of the model.
+// Arrow along the joint axis, a dot at the pivot, a ring for rotation, the travel of a slide
+// (a bar from min to max with an end stop at each end), and an optional marker for a linked
+// joint's target point. Drawn on top of the model.
 export class JointGizmo {
   constructor(scene) {
     this.group = new THREE.Group();
@@ -230,13 +232,21 @@ export class JointGizmo {
       new THREE.LineDashedMaterial({ color: TARGET_COLOR, depthTest: false, transparent: true }),
     );
     this.link.frustumCulled = false;
-    this.group.add(this.arrow, this.pivot, this.ring, this.target, this.link);
+    // Slide travel: where the part can go, measured from where it sits in the file.
+    this.travel = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: TRAVEL_COLOR, depthTest: false, transparent: true }),
+    );
+    this.travel.frustumCulled = false;
+    this.stops = [0, 1].map(() => new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.15, 24), overlayMaterial(TRAVEL_COLOR)));
+    this.group.add(this.arrow, this.pivot, this.ring, this.target, this.link, this.travel, ...this.stops);
     this.group.traverse((object) => { object.renderOrder = 1000; });
     scene.add(this.group);
   }
 
   // point/direction/target are in world space; size is the model's largest dimension.
-  show({ point, direction, type, target, size }) {
+  // travel (slides only): { from, to } in metres along direction, measured from point.
+  show({ point, direction, type, target, size, travel = null }) {
     const length = size * 0.3;
     const direction3 = direction.clone().normalize();
     this.arrow.position.copy(point).addScaledVector(direction3, type === 'prismatic' ? -length / 2 : 0);
@@ -248,6 +258,20 @@ export class JointGizmo {
     this.ring.position.copy(point);
     this.ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction3);
     this.ring.scale.setScalar(size * 0.08);
+    const showTravel = type === 'prismatic' && Boolean(travel);
+    this.travel.visible = showTravel;
+    this.stops.forEach((stop) => { stop.visible = showTravel; });
+    if (showTravel) {
+      const ends = [travel.from, travel.to].map((distance) => point.clone().addScaledVector(direction3, distance));
+      const positions = this.travel.geometry.attributes.position;
+      ends.forEach((end, index) => positions.setXYZ(index, end.x, end.y, end.z));
+      positions.needsUpdate = true;
+      this.stops.forEach((stop, index) => {
+        stop.position.copy(ends[index]);
+        stop.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction3);
+        stop.scale.setScalar(size * 0.025);
+      });
+    }
     this.target.visible = Boolean(target);
     this.link.visible = Boolean(target);
     if (target) {

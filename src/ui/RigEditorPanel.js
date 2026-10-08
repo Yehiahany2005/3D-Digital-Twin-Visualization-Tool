@@ -2,11 +2,16 @@ import * as THREE from 'three';
 import { analyzeSurface } from '../motion/surfaceAnalysis.js';
 import { emptyRigDefinition, originalParent, partReference } from '../motion/Rig.js';
 import { downloadRig, forgetSavedRig, readRigFile, saveRig } from '../motion/RigStore.js';
+import { niceNumber } from './JointControls.js';
 
-const TYPE_DEFAULTS = {
-  revolute: { min: -180, max: 180, speed: 60 },
-  prismatic: { min: -500, max: 500, speed: 250 },
-};
+const REVOLUTE_DEFAULTS = { min: -180, max: 180, speed: 60 };
+// A new slide travels a quarter of the model's size, one way from where the part sits in the
+// file (Reverse flips the way), and takes about two seconds end to end.
+const SLIDE_TRAVEL_FRACTION = 0.25;
+// A "Two points" direction within 3° of one of the model's axes snaps onto it exactly.
+const SNAP_ANGLE_COS = Math.cos(THREE.MathUtils.degToRad(3));
+// A flat face whose long side is less than this times its short side has no clear direction.
+const CLEAR_ELONGATION = 1.3;
 const TYPE_LABELS = { revolute: 'rotates', prismatic: 'slides', aim: 'follows (rotate)', stretch: 'follows (slide)' };
 const TYPE_ICONS = { revolute: '⟳', prismatic: '↕', aim: '⤷', stretch: '⤷' };
 const WORLD_AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
@@ -91,6 +96,7 @@ export class RigEditorPanel {
     this.query('[data-select-parts]').addEventListener('click', () => this.setPickMode(this.pickMode === 'parts' ? null : 'parts'));
     this.query('[data-clear-selection]').addEventListener('click', () => this.setSelection([]));
     this.query('[data-pick-surface]').addEventListener('click', () => this.setPickMode('surface'));
+    this.query('[data-pick-line]').addEventListener('click', () => this.setPickMode(this.pickMode === 'line' ? 'parts' : 'line'));
     this.query('[data-pick-target]').addEventListener('click', () => this.setPickMode('target'));
     this.query('[data-part-centre]').addEventListener('click', () => {
       if (!this.selection.length) return this.showMessage('Select the moving parts first.', true);
@@ -108,16 +114,19 @@ export class RigEditorPanel {
       this.draft.axis.negate();
     });
 
-    this.field('type').addEventListener('change', () => {
-      const type = this.field('type').value;
-      const motion = type === 'prismatic' || type === 'stretch' ? 'prismatic' : 'revolute';
-      Object.assign(this.draft, { type }, TYPE_DEFAULTS[motion]);
-      this.writeForm();
+    this.field('type').addEventListener('change', () => this.changeType(this.field('type').value));
+    this.field('parent').addEventListener('change', () => {
+      this.draft.parent = this.field('parent').value;
+      this.refreshStretchAxis();
+      this.writeFollowStatus();
     });
-    this.field('parent').addEventListener('change', () => { this.draft.parent = this.field('parent').value; });
     this.field('name').addEventListener('input', () => { this.draft.name = this.field('name').value; });
     ['min', 'max', 'speed'].forEach((name) => {
-      this.field(name).addEventListener('change', () => { this.draft[name] = Number(this.field(name).value); });
+      // On every keystroke, so the slide's travel on the model follows what is typed.
+      this.field(name).addEventListener('input', () => {
+        const value = Number(this.field(name).value);
+        if (this.field(name).value !== '' && Number.isFinite(value)) this.draft[name] = value;
+      });
     });
 
     this.query('[data-save-joint]').addEventListener('click', () => this.saveJoint());
@@ -166,6 +175,7 @@ export class RigEditorPanel {
 
   setPickMode(mode) {
     this.pickMode = this.asset ? mode : null;
+    this.lineStart = null;
     this.updatePickButtons();
     if (this.pickMode) {
       this.picker.setHandler((hit, event) => this.handlePick(hit, event), this.asset.model, {
@@ -183,7 +193,12 @@ export class RigEditorPanel {
       this.picker.setHandler(null);
     }
     if (this.pickMode !== 'surface') this.surfacePreview.hide();
-    if (this.pickMode === 'surface') this.showMessage('Move over the model: the highlighted surface and the dashed line show the axis the joint would turn around. Round shafts and holes work best. Click to use it.');
+    if (this.pickMode === 'surface') {
+      this.showMessage(this.isSlide
+        ? 'Move over the model: the highlighted surface and the dashed line show the way the part would slide. Rods, rails and long flat faces work best. Click to use it.'
+        : 'Move over the model: the highlighted surface and the dashed line show the axis the joint would turn around. Round shafts and holes work best. Click to use it.');
+    }
+    if (this.pickMode === 'line') this.showMessage('Click the first point, then a second point further along the way the part slides. Click "Two points" again to cancel.');
     if (this.pickMode === 'target') this.showMessage('Click the point this joint should follow.');
   }
 
@@ -192,6 +207,7 @@ export class RigEditorPanel {
     selectButton.setAttribute('aria-pressed', String(this.pickMode === 'parts'));
     selectButton.classList.toggle('is-active', this.pickMode === 'parts');
     this.query('[data-pick-surface]').classList.toggle('is-active', this.pickMode === 'surface');
+    this.query('[data-pick-line]').classList.toggle('is-active', this.pickMode === 'line');
     this.query('[data-pick-target]').classList.toggle('is-active', this.pickMode === 'target');
   }
 
@@ -203,6 +219,7 @@ export class RigEditorPanel {
     this.asset.player.stop();
     if (this.pickMode === 'parts') this.pickPart(hit.object, event.shiftKey);
     else if (this.pickMode === 'surface') this.pickSurface(hit);
+    else if (this.pickMode === 'line') this.pickLinePoint(hit);
     else if (this.pickMode === 'target') this.pickTarget(hit);
   }
 
@@ -270,6 +287,7 @@ export class RigEditorPanel {
       const parent = this.rig.jointsById.get(this.draft.parent);
       const stacking = parent && this.selection.length && this.selection.every((object) => parent.parts.includes(object));
       if (this.draft.pivotSource === 'auto' && stacking) this.draft.pivot = parent.pivotInModel.clone();
+      this.refreshStretchAxis();
       this.writeForm();
     }
     this.refreshSelection();
@@ -354,9 +372,13 @@ export class RigEditorPanel {
     }
     const mesh = hit.object;
     const result = analyzeSurface(mesh, hit.faceIndex);
+    const scale = mesh.getWorldScale(new THREE.Vector3()).x;
+    if (this.isSlide) {
+      this.previewSlideSurface(mesh, result, scale);
+      return;
+    }
     const worldPivot = result.pivot.clone().applyMatrix4(mesh.matrixWorld);
     const worldAxis = result.axis.clone().transformDirection(mesh.matrixWorld);
-    const scale = mesh.getWorldScale(new THREE.Vector3()).x;
     this.surfacePreview.show({
       mesh,
       result,
@@ -375,9 +397,69 @@ export class RigEditorPanel {
     this.showMessage(found[result.kind]);
   }
 
+  // The way a part slides along a surface: along a rod or hole, or along a flat face's long
+  // side (a carriage runs along its rail face, not into it). Null when the surface has none.
+  slideDirection(result) {
+    if (result.kind === 'round') return { direction: result.axis, clear: true };
+    if (result.kind === 'flat' && result.along) return { direction: result.along, clear: result.elongation >= CLEAR_ELONGATION };
+    return null;
+  }
+
+  slideMessage(result, slide, millimetres, clicked) {
+    if (!slide) return 'This surface has no slide direction. Point at a rod, a rail or a long flat face, or use "Two points".';
+    if (result.kind === 'round') {
+      return clicked
+        ? `Round surface found (Ø ${round(result.radius * 2 * millimetres, 1)} mm). The part slides along its centre line.`
+        : `Round surface, Ø ${round(result.radius * 2 * millimetres, 1)} mm: the part will slide along the dashed line. Click to use it.`;
+    }
+    if (!slide.clear) {
+      return clicked
+        ? 'Flat face used, but it has no clear long side: check the arrow, or use "Two points".'
+        : 'Flat face with no clear long side: the direction may be wrong. Try a rail edge or a rod, or use "Two points".';
+    }
+    return clicked
+      ? 'Flat face found. The part slides along its long side.'
+      : "Flat face: the part will slide along the dashed line (the face's long side). Click to use it.";
+  }
+
+  previewSlideSurface(mesh, result, scale) {
+    const slide = this.slideDirection(result);
+    if (slide) {
+      this.surfacePreview.show({
+        mesh,
+        result,
+        worldPivot: result.pivot.clone().applyMatrix4(mesh.matrixWorld),
+        worldAxis: slide.direction.clone().transformDirection(mesh.matrixWorld),
+        worldRadius: result.kind === 'round' ? result.radius * scale : null,
+        size: this.modelSize,
+      });
+    } else {
+      this.surfacePreview.hide();
+    }
+    this.showMessage(this.slideMessage(result, slide, scale * 1000, false));
+  }
+
+  // Model-frame (rest pose) version of a direction given in a mesh's own coordinates.
+  meshDirectionToModel(mesh, direction) {
+    return this.rig.withRestPose(() => {
+      const toModel = this.rig.content.matrixWorld.clone().invert().multiply(mesh.matrixWorld);
+      return direction.clone().transformDirection(toModel);
+    });
+  }
+
   pickSurface(hit) {
     const mesh = hit.object;
     const result = analyzeSurface(mesh, hit.faceIndex);
+    if (this.isSlide) {
+      // A slide only needs a direction; its pivot stays on the moving part.
+      const slide = this.slideDirection(result);
+      const millimetres = mesh.getWorldScale(new THREE.Vector3()).x * 1000;
+      if (!slide) return this.showMessage(this.slideMessage(result, slide, millimetres, true), true);
+      this.draft.axis = this.keepDirection(this.meshDirectionToModel(mesh, slide.direction));
+      this.surfacePreview.hide();
+      this.setPickMode('parts');
+      return this.showMessage(this.slideMessage(result, slide, millimetres, true), !slide.clear);
+    }
     const { pivot, axis, scale } = this.rig.withRestPose(() => {
       const toModel = this.rig.content.matrixWorld.clone().invert().multiply(mesh.matrixWorld);
       return {
@@ -397,7 +479,35 @@ export class RigEditorPanel {
       curved: 'Curved surface found. The pivot is at its centre of curvature; check the axis direction.',
       point: 'Could not read that surface; used the clicked point.',
     };
-    this.showMessage(messages[result.kind]);
+    return this.showMessage(messages[result.kind]);
+  }
+
+  // A surface gives a line, not a way along it: keep the sense the arrow already had, so
+  // picking a rail doesn't silently flip a direction the user set with Reverse.
+  keepDirection(direction) {
+    const result = direction.clone().normalize();
+    return result.dot(this.draft.axis) < 0 ? result.negate() : result;
+  }
+
+  // "Two points": the part slides from the first click toward the second.
+  pickLinePoint(hit) {
+    const mesh = hit.object;
+    const local = mesh.worldToLocal(hit.point.clone());
+    const point = this.rig.withRestPose(() => this.rig.content.worldToLocal(mesh.localToWorld(local)));
+    if (!this.lineStart) {
+      this.lineStart = point;
+      return this.showMessage('First point set. Now click a second point further along the way the part slides.');
+    }
+    const direction = point.clone().sub(this.lineStart);
+    if (direction.length() < this.modelSize * 1e-3 / this.rig.metresPerUnit) {
+      return this.showMessage('The two points are too close together. Click a second point further away.', true);
+    }
+    direction.normalize();
+    // Lines that are almost along one of the model's axes snap onto it exactly.
+    const snapped = Object.values(WORLD_AXES).find((axis) => Math.abs(axis.dot(direction)) >= SNAP_ANGLE_COS);
+    this.draft.axis = snapped ? snapped.clone().multiplyScalar(Math.sign(snapped.dot(direction))) : direction;
+    this.setPickMode('parts');
+    return this.showMessage(`Direction set from the two points${snapped ? ' (lined up with the model\'s axis)' : ''}. The arrow shows the way it slides; use Reverse to flip it.`);
   }
 
   pickTarget(hit) {
@@ -413,11 +523,7 @@ export class RigEditorPanel {
     const local = mesh.worldToLocal(hit.point.clone());
     this.draft.target = this.rig.withRestPose(() => this.rig.content.worldToLocal(mesh.localToWorld(local)));
     this.draft.linkJoint = owner;
-    if (this.draft.type === 'stretch') {
-      const anchor = this.stretchAnchor();
-      const direction = this.draft.target.clone().sub(anchor);
-      if (direction.lengthSq() > 0) this.draft.axis = direction.normalize();
-    }
+    this.refreshStretchAxis();
     this.setPickMode('parts');
     this.writeForm();
     return this.showMessage(`Follow point set on "${this.rig.jointsById.get(owner).name}".`);
@@ -465,8 +571,37 @@ export class RigEditorPanel {
       axis: this.rig ? WORLD_AXES.y.clone().applyQuaternion(this.rig.content.getWorldQuaternion(new THREE.Quaternion()).invert()) : WORLD_AXES.y.clone(),
       pivot: new THREE.Vector3(),
       pivotSource: 'auto',
-      ...TYPE_DEFAULTS.revolute,
+      // Range and speed last used for each kind of movement, so switching type and back keeps them.
+      remembered: {},
+      ...REVOLUTE_DEFAULTS,
     };
+  }
+
+  // Range and speed for a new joint. Rotation is the same for any model; a slide's travel and
+  // speed follow the model's size (a 10 cm gripper and a 20 m gantry both get something usable).
+  typeDefaults(motion) {
+    if (motion === 'revolute') return { ...REVOLUTE_DEFAULTS };
+    const travel = niceNumber((this.modelSize || 1) * 1000 * SLIDE_TRAVEL_FRACTION);
+    return { min: 0, max: travel, speed: niceNumber(travel / 2) };
+  }
+
+  changeType(type) {
+    const { draft } = this;
+    const before = this.motion;
+    draft.type = type;
+    const after = this.motion;
+    if (after !== before) {
+      // Degrees and millimetres don't convert: keep each kind's own values.
+      draft.remembered[before] = { min: draft.min, max: draft.max, speed: draft.speed };
+      Object.assign(draft, draft.remembered[after] || this.typeDefaults(after));
+    }
+    // A slide's pivot only places the arrow: put it back on the moving parts.
+    if (this.isSlide && draft.pivotSource !== 'manual') {
+      draft.pivotSource = 'auto';
+      if (this.selection.length) draft.pivot = this.selectionCentre();
+    }
+    this.refreshStretchAxis();
+    this.writeForm();
   }
 
   resetForm() {
@@ -546,6 +681,23 @@ export class RigEditorPanel {
       button.textContent = label;
       button.title = title;
     });
+    // A slide has a direction but no pivot; a piston rod's direction comes from its follow point.
+    const rod = draft.type === 'stretch';
+    this.query('[data-axis-title]').textContent = motion === 'prismatic' ? 'Slide direction' : 'Axis & pivot';
+    this.query('[data-axis-pick-row]').hidden = rod;
+    this.query('[data-axis-buttons]').hidden = rod;
+    this.query('[data-pick-line]').hidden = !this.isSlide;
+    this.query('[data-part-centre]').hidden = motion === 'prismatic';
+    this.query('[data-pick-surface]').title = this.isSlide
+      ? 'Hover a rod, rail or long flat face to preview the way the part slides, then click'
+      : 'Hover a round shaft, hole or flat face to preview the axis the joint turns around, then click';
+    const note = this.query('[data-axis-note]');
+    note.hidden = !rod;
+    note.textContent = 'Set automatically: the rod slides along the line from its barrel to the follow point.';
+    this.query('[data-range-hint]').textContent = motion === 'prismatic'
+      ? '0 mm is where the part sits in the file. The purple bar on the model shows the travel.'
+      : '0° is the pose the part has in the file.';
+    if ((!this.isSlide && this.pickMode === 'line') || (rod && this.pickMode === 'surface')) this.setPickMode('parts');
     this.query('[data-link-fields]').hidden = !linked;
     this.query('[data-limit-fields]').hidden = linked;
     this.query('[data-speed-field]').hidden = linked;
@@ -581,6 +733,13 @@ export class RigEditorPanel {
       name.textContent = followed.name;
       text.append(name);
       status.replaceChildren(swatch, text);
+      const warning = this.stretchWarning();
+      if (warning) {
+        const line = document.createElement('small');
+        line.className = 'follow-warning';
+        line.textContent = warning;
+        status.appendChild(line);
+      }
     }
     this.refreshLinked();
   }
@@ -602,9 +761,38 @@ export class RigEditorPanel {
     return this.draft.type === 'prismatic' || this.draft.type === 'stretch' ? 'prismatic' : 'revolute';
   }
 
+  // A plain slide (not a piston rod that follows a point).
+  get isSlide() {
+    return this.draft?.type === 'prismatic';
+  }
+
   stretchAnchor() {
     const parent = this.rig.jointsById.get(this.draft.parent);
     return parent?.definition?.aim ? parent.pivotInModel.clone() : this.draft.pivot.clone();
+  }
+
+  // A piston rod slides along the line from its anchor to its follow point. Both can change
+  // after the follow point is picked (a new "Mounted on", other parts), so this is redone then.
+  refreshStretchAxis() {
+    const { draft } = this;
+    if (draft?.type !== 'stretch' || !draft.target || !this.rig) return;
+    const direction = draft.target.clone().sub(this.stretchAnchor());
+    if (direction.lengthSq() > 0) draft.axis = direction.normalize();
+  }
+
+  // The rod only stays on its follow point if it is mounted on a barrel that turns to point at
+  // that same point; otherwise it can only stretch in a fixed direction.
+  stretchWarning() {
+    const { draft } = this;
+    if (draft?.type !== 'stretch' || !draft.target) return null;
+    const parent = this.rig.jointsById.get(draft.parent);
+    const aim = parent?.definition?.aim;
+    const sameJoint = aim && aim.joint === draft.linkJoint;
+    const samePoint = sameJoint && parent.pointInFrame(aim.target).distanceTo(draft.target) * this.rig.metresPerUnit <= this.modelSize * 0.01;
+    if (samePoint) return null;
+    return parent && sameJoint
+      ? `Its barrel "${parent.name}" points at a different spot, so the rod will drift off the follow point. Pick the same point for both.`
+      : 'Not mounted on a barrel that follows the same point: the rod keeps one direction, so it only stays on the follow point if that point moves straight along the rod. Mount it on a "Rotate to follow a point" barrel for a working cylinder.';
   }
 
   // ---- Joint definitions ------------------------------------------------------
@@ -631,6 +819,7 @@ export class RigEditorPanel {
       max: joint.max,
       speed: joint.speed,
       zero: joint.zero,
+      remembered: {},
     };
     this.query('[data-form-title]').textContent = `Editing "${joint.name}"`;
     this.query('[data-save-joint]').textContent = 'Save joint';
@@ -643,6 +832,7 @@ export class RigEditorPanel {
   }
 
   buildDefinition(id) {
+    this.refreshStretchAxis();
     const { draft } = this;
     const motion = draft.type === 'prismatic' || draft.type === 'stretch' ? 'prismatic' : 'revolute';
     const vector = (value) => value.toArray().map((component) => round(component, 6));
@@ -736,13 +926,14 @@ export class RigEditorPanel {
     }
     this.persist();
     const verb = this.draft.editingId ? 'saved' : 'created';
+    const rodWarning = this.stretchWarning();
     this.resetForm();
     this.setSelection([]);
     // Parts taken from the joint this one is mounted on still follow it, so they gain a second movement.
     const parentName = this.rig.jointsById.get(joint.parent)?.name;
     const note = (movedFromParent ? ` It moves together with "${parentName}" and adds its own movement on top.` : '')
       + (moved ? ` ${moved} part${moved === 1 ? ' was' : 's were'} moved from another joint.` : '');
-    return this.showMessage(`Joint "${joint.name}" ${verb}. Try it in the Joints panel.${note}`);
+    return this.showMessage(`Joint "${joint.name}" ${verb}. Try it in the Joints panel.${note}${rodWarning ? ` Note: ${rodWarning}` : ''}`, Boolean(rodWarning));
   }
 
   uniqueId(base) {
@@ -969,6 +1160,11 @@ export class RigEditorPanel {
     const target = draft.target && (draft.type === 'aim' || draft.type === 'stretch')
       ? this.rig.modelToWorld(draft.target, draft.axis, draft.linkJoint).point
       : null;
-    this.gizmo.show({ point, direction, type: motion, target, size: this.modelSize });
+    // Travel of a slide, in metres from where the part sits in the file (0 mm).
+    const zero = Number.isFinite(draft.zero) ? draft.zero : 0;
+    const travel = this.isSlide && Number.isFinite(draft.min) && Number.isFinite(draft.max)
+      ? { from: (Math.min(draft.min, draft.max) - zero) / 1000, to: (Math.max(draft.min, draft.max) - zero) / 1000 }
+      : null;
+    this.gizmo.show({ point, direction, type: motion, target, size: this.modelSize, travel });
   }
 }
