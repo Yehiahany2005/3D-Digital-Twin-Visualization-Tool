@@ -69,6 +69,16 @@ export class PropertiesPanel {
     }
     const runtime = this.editor.selectedRuntime;
     const parts = [this.headerSection(item, runtime)];
+    if (this.editor.playing) {
+      // While playing only what moves things is offered; the layout can't change.
+      const note = section();
+      note.append(element('p', 'editor-hint', 'The scene is playing. Stop it to move or change things; machines can still be jogged.'));
+      parts.push(note);
+      if (runtime?.asset?.animations?.length) parts.push(this.animationSection(item, runtime));
+      if (runtime?.asset?.rig?.joints.length) parts.push(this.jointsSection(item, runtime));
+      this.container.replaceChildren(...parts);
+      return;
+    }
     if (runtime?.kind === 'missing') parts.push(this.missingSection(item));
     parts.push(this.placementSection(item, runtime));
     this.extraSections.forEach((build) => {

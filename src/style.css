@@ -1960,3 +1960,10 @@ body[data-mode="scene"] .reach-bar { top: 3.65rem; }
   font-size: 0.7rem;
 }
 .connection-row:has(> select:only-child) { grid-template-columns: minmax(0, 1fr); }
+
+.scene-play { display: flex; align-items: center; gap: 0.4rem; }
+.scene-toolbar .scene-play-button { padding-right: 0.7rem; border-color: #3d6b4c; background: rgba(76, 211, 138, 0.16); color: #d9f7e5; }
+.scene-toolbar .scene-play-button.is-playing { border-color: #a14b4b; background: rgba(240, 100, 100, 0.2); color: #ffe1e1; }
+.scene-play-status { color: #9fe3bd; font-weight: 600; white-space: nowrap; }
+.scene-play-status[hidden] { display: none; }
+.scene-toolbar.is-playing { border-color: rgba(76, 211, 138, 0.55); }

@@ -3,7 +3,8 @@ import { ASSET_REGISTRY, getAssetConfig, registerImportedAsset } from '../assets
 import { getStoredImport, storeImport } from '../assets/ImportStore.js';
 import { formatLabel, UNIT_SCALES, unsupportedFormatMessage } from '../loaders/ModelLoader.js';
 import { loadRigByKey, saveRigByKey } from '../motion/RigStore.js';
-import { dependentsOf, emptyScene, newId, parentOf } from './SceneDocument.js';
+import { cloneScene, dependentsOf, emptyScene, newId, parentOf } from './SceneDocument.js';
+import { describeBody, Simulation } from './Simulation.js';
 import { anchorNamed, anchorsOf } from './Anchors.js';
 import { deleteScene, lastSceneId, listScenes, loadScene, rememberLastScene, saveScene } from './SceneStore.js';
 import { buildBundle, downloadBlob, readBundle } from './SceneBundle.js';
@@ -70,6 +71,7 @@ export class SceneMode {
       extraSections: [
         (item, runtime, panel) => this.paramsSection(item, runtime, panel),
         (item, runtime) => this.connectionsSection(item, runtime),
+        (item, runtime) => this.physicsSection(item, runtime),
       ],
     });
     this.drawer = new AddDrawer({
@@ -387,6 +389,101 @@ export class SceneMode {
     return node.children.length > 1 ? node : null;
   }
 
+  // How the item behaves when the scene plays; models can be made solid.
+  physicsSection(item, runtime) {
+    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing') return null;
+    const text = describeBody(item, runtime);
+    if (runtime.kind !== 'model' && !text) return null;
+    const node = document.createElement('section');
+    node.className = 'editor-section';
+    node.append(Object.assign(document.createElement('span'), { className: 'editor-section-title', textContent: 'When playing' }));
+    if (runtime.kind === 'model') {
+      const label = document.createElement('label');
+      label.className = 'editor-check';
+      const input = Object.assign(document.createElement('input'), { type: 'checkbox', checked: Boolean(item.solid) });
+      input.addEventListener('change', () => this.editor.updateItem(item.id, { solid: input.checked || undefined }, `${input.checked ? 'Make' : 'Stop making'} ${item.name} solid`));
+      label.append(input, ' Solid: boxes bump into its outline');
+      label.title = 'Uses the box around the model, so leave it off for robots that reach over things.';
+      node.append(label);
+    } else {
+      node.append(Object.assign(document.createElement('p'), { className: 'editor-hint', textContent: text }));
+    }
+    return node;
+  }
+
+  // ---- Playing (physics, conveyors, box sources) -----------------------------------------------
+
+  async togglePlay() {
+    if (this.simulation) this.stopPlaying();
+    else await this.startPlaying();
+  }
+
+  async startPlaying() {
+    if (this.simulation || this.startingPlay) return;
+    this.startingPlay = true;
+    this.drawer.setOpen(false);
+    await this.saveNow();
+    clearInterval(this.poseTimer);
+    this.editor.capturePoses();
+    this.playStart = cloneScene(this.editor.document);
+    const simulation = new Simulation(this.editor);
+    this.ui.play.disabled = true;
+    this.onStatus?.('Starting the simulation…');
+    try {
+      await simulation.start();
+    } catch (error) {
+      console.error('The simulation could not start.', error);
+      this.onError?.(`The simulation couldn't start: ${error.message}`);
+      this.ui.play.disabled = false;
+      this.startingPlay = false;
+      this.startPoseTimer();
+      return;
+    }
+    this.onStatus?.(null);
+    this.simulation = simulation;
+    this.startingPlay = false;
+    this.editor.playing = true;
+    this.editor.updateGizmo();
+    this.editor.emit('selection');
+    this.updatePlayButton();
+  }
+
+  stopPlaying() {
+    if (!this.simulation) return;
+    this.simulation.stop();
+    this.simulation = null;
+    this.editor.playing = false;
+    // Everything back where the scene says it is: positions, poses, hidden items.
+    this.editor.runtimes.forEach((runtime) => runtime.asset?.player.stop());
+    this.editor.document = this.playStart;
+    this.editor.reconcile({ applyPoses: true });
+    this.editor.updateGizmo();
+    this.editor.emit('selection');
+    this.updatePlayButton();
+    this.startPoseTimer();
+  }
+
+  updatePlayButton() {
+    const playing = Boolean(this.simulation);
+    this.ui.play.disabled = false;
+    this.ui.play.classList.toggle('is-playing', playing);
+    this.ui.playLabel.textContent = playing ? 'Stop' : 'Play';
+    this.ui.play.title = playing ? 'Stop: everything goes back to where it was' : 'Play: gravity, conveyors and box sources run. Stop puts everything back.';
+    this.ui.playStatus.hidden = !playing;
+    this.ui.toolbar.classList.toggle('is-playing', playing);
+    [this.ui.addButton, this.ui.undo, this.ui.redo, ...this.ui.toolButtons].forEach((button) => { button.disabled = playing; });
+    if (!playing) this.updateHistoryButtons();
+  }
+
+  startPoseTimer() {
+    clearInterval(this.poseTimer);
+    this.poseTimer = setInterval(() => {
+      if (this.editor.playing) return;
+      this.editor.capturePoses();
+      if (JSON.stringify(this.editor.document.items) !== this.lastSaved) this.scheduleSave();
+    }, POSE_CHECK_MS);
+  }
+
   iconFor(item, runtime) {
     if (item.source.kind === 'catalog') return getComponent(item.source.id)?.icon || 'Package';
     return runtime?.asset?.rig?.joints.length ? 'Bot' : 'Box';
@@ -488,6 +585,7 @@ export class SceneMode {
   }
 
   async show(scene) {
+    this.stopPlaying();
     this.onStatus?.(`Opening ${scene.name}…`);
     try {
       await this.editor.setDocument(scene);
@@ -606,6 +704,7 @@ export class SceneMode {
     ui.snap.addEventListener('change', () => this.editor.setSnap(Number(ui.snap.value)));
     ui.undo.addEventListener('click', () => this.editor.undo());
     ui.redo.addEventListener('click', () => this.editor.redo());
+    ui.play.addEventListener('click', () => this.togglePlay());
     this.setTool('move');
   }
 
@@ -630,6 +729,13 @@ export class SceneMode {
     document.addEventListener('keydown', (event) => {
       if (!this.active || isTyping(event) || this.drawer.placing) return;
       const { editor } = this;
+      // While playing only selecting and framing work (and Ctrl+Enter stops).
+      if (editor.playing && !['escape', 'f'].includes(event.key.toLowerCase()) && !((event.ctrlKey || event.metaKey) && event.key === 'Enter')) return;
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        this.togglePlay();
+        return;
+      }
       const key = event.key.toLowerCase();
       const command = event.ctrlKey || event.metaKey;
       const selected = editor.selectedId;
@@ -737,14 +843,12 @@ export class SceneMode {
       this.environmentChanged();
     }
     this.bindReach();
-    this.poseTimer = setInterval(() => {
-      this.editor.capturePoses();
-      if (JSON.stringify(this.editor.document.items) !== this.lastSaved) this.scheduleSave();
-    }, POSE_CHECK_MS);
+    this.startPoseTimer();
   }
 
   exit() {
     if (!this.active) return;
+    this.stopPlaying();
     this.saveNow();
     clearInterval(this.poseTimer);
     this.active = false;
@@ -766,6 +870,15 @@ export class SceneMode {
 
   update(deltaTime) {
     if (!this.active) return;
+    if (this.simulation) {
+      this.simulation.step(deltaTime);
+      this.playTime = (this.playTime || 0) + deltaTime;
+      if (this.playTime > 0.25) {
+        this.playTime = 0;
+        const count = this.simulation.boxCount;
+        this.ui.playStatus.textContent = `Playing · ${count} box${count === 1 ? '' : 'es'}`;
+      }
+    }
     this.editor.update(deltaTime);
     this.properties.update();
   }

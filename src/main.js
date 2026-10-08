@@ -9,6 +9,7 @@ import {
   MousePointer2,
   Move,
   Move3d,
+  Play,
   PlayCircle,
   Plus,
   Redo2,
@@ -45,7 +46,7 @@ import { SceneMode } from './studio/SceneMode.js';
 import { lastMode, rememberLastMode } from './studio/SceneStore.js';
 import './style.css';
 
-createIcons({ icons: { Box, Clapperboard, Crosshair, Cpu, LayoutGrid, ListTree, MousePointer2, Move, Move3d, PlayCircle, Plus, Redo2, RotateCw, SlidersHorizontal, TerminalSquare, Undo2, Upload, Wrench } });
+createIcons({ icons: { Box, Clapperboard, Crosshair, Cpu, LayoutGrid, ListTree, MousePointer2, Move, Move3d, Play, PlayCircle, Plus, Redo2, RotateCw, SlidersHorizontal, TerminalSquare, Undo2, Upload, Wrench } });
 
 function updateClock() {
   const timeElement = document.querySelector('[data-current-time]');
@@ -334,6 +335,9 @@ const sceneMode = new SceneMode({
     snap: document.querySelector('[data-scene-snap]'),
     undo: document.querySelector('[data-scene-undo]'),
     redo: document.querySelector('[data-scene-redo]'),
+    play: document.querySelector('[data-scene-play]'),
+    playLabel: document.querySelector('[data-scene-play-label]'),
+    playStatus: document.querySelector('[data-scene-play-status]'),
     addButton: document.querySelector('[data-scene-add]'),
     drawer: document.querySelector('[data-add-drawer]'),
     explorerList: document.querySelector('[data-explorer-list]'),

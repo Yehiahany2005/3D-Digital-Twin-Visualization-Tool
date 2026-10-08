@@ -74,6 +74,7 @@ export class SceneEditor {
     this.snap = 0.1;
     this.rotationSnapDeg = 15;
     this.freeRotation = false;
+    this.playing = false;
 
     this.gizmo = new TransformControls(camera, domElement);
     this.gizmo.setSpace('world');
@@ -135,6 +136,11 @@ export class SceneEditor {
 
   // The one way to change the scene: mutate(document) edits a copy, which becomes current.
   commit(label, mutate) {
+    // While the scene plays nothing may change: stopping puts everything back anyway.
+    if (this.playing) {
+      this.emit('status', 'Stop the simulation to change the scene.');
+      return { result: null, ready: Promise.resolve() };
+    }
     this.capturePoses();
     const before = cloneScene(this.document);
     const next = cloneScene(this.document);
@@ -161,10 +167,12 @@ export class SceneEditor {
   }
 
   undo() {
+    if (this.playing) return;
     this.travel(this.undoStack, this.redoStack);
   }
 
   redo() {
+    if (this.playing) return;
     this.travel(this.redoStack, this.undoStack);
   }
 
