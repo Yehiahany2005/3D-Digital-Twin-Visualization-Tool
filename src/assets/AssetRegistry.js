@@ -5,7 +5,6 @@ import robotUrl from './robot.glb?url';
 import depalletizerUrl from './Robotics_Depallatizer_IRB660_with_SafeMove_Zone.glb?url';
 import itemPickerUrl from './Robotics_Item_Picker_IRB1300.glb?url';
 import unitreeUrl from './Unitree_G1_Brooklyn_Uprock.glb?url';
-import miraUrl from './sharable-bot.glb?url';
 import roboticArmUrl from './robotic_arm.glb?url';
 
 export const ASSET_REGISTRY = [
@@ -33,12 +32,6 @@ export const ASSET_REGISTRY = [
     name: 'Unitree Humanoid Robot',
     type: 'Robot',
     model: unitreeUrl,
-  },
-    {
-    id: 'Mira_robot',
-    name: 'Mira Robot',
-    type: 'Robot',
-    model: miraUrl,
   },
       {
     id: 'RoboticARM',

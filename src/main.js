@@ -50,10 +50,8 @@ const container = document.querySelector('#viewport');
 const visualizationButton = document.querySelector('[data-view-toggle]');
 const visualizationMode = document.querySelector('[data-view-mode]');
 const stationCard = document.querySelector('[data-station-card]');
-const assetSelect = document.querySelector('[data-asset-select]');
 const stationDebug = document.querySelector('[data-station-debug]');
 const stationExit = document.querySelector('[data-station-exit]');
-const assetSelectionCard = document.querySelector('[data-asset-selection-card]');
 const stationStart = document.querySelector('[data-station-start]');
 const stationReset = document.querySelector('[data-station-reset]');
 const stationSpeed = document.querySelector('[data-station-speed]');
@@ -215,8 +213,6 @@ const assetManager = new AssetManager({
 
 const assetSelectionPanel = new AssetSelectionPanel({
   assetManager,
-  selectElement: assetSelect,
-  infoTitle: document.querySelector('[data-asset-info-title]'),
   nameElement: document.querySelector('[data-asset-name]'),
   typeElement: document.querySelector('[data-asset-type]'),
   animationCountElement: document.querySelector('[data-asset-animation-count]'),
@@ -227,6 +223,11 @@ const assetSelectionPanel = new AssetSelectionPanel({
   restartButton: document.querySelector('[data-animation-restart]'),
   messageElement: document.querySelector('[data-asset-message]'),
   onStationSelect: openStation,
+  // Picking a model while the station runs leaves the station first.
+  onAssetSelect: async (id) => {
+    if (stationMode) closeStation();
+    await assetManager.select(id);
+  },
   defaultAssetId: DEFAULT_ASSET_ID,
 });
 
@@ -245,19 +246,22 @@ void startUp();
 
 async function openStation() {
   stationMode = true;
-  assetSelectionCard.hidden = true;
   // The station cycle drives the robot itself, so sequences would fight it.
   animationEditorCard.hidden = true;
   await assetManager.select('abb_irb6760');
   if (activeAsset?.config.id === 'abb_irb6760') await stationScene.show(activeAsset);
   stationCard.hidden = false;
-  assetSelect.value = 'station';
+  stationCard.open = true;
+  assetSelectionPanel.setCurrent('station');
 }
 
 function closeStation() {
   stationMode = false;
   const robot = stationScene.hide();
   if (robot && activeAsset) {
+    // The station moved the robot through its base joints; put those back too, or the next
+    // joint change would send the robot back to its station spot.
+    activeAsset.rig.setValues({ 'base.x': 0, 'base.y': 0, 'base.z': 0, 'base.yaw': 0 });
     robot.position.set(0, 0, 0);
     robot.rotation.set(0, 0, 0);
     assetManager.applyPlacement(activeAsset);
@@ -265,9 +269,8 @@ function closeStation() {
     cameraManager.frameObject(robot, controls);
   }
   stationCard.hidden = true;
-  assetSelectionCard.hidden = false;
   animationEditorCard.hidden = false;
-  assetSelect.value = activeAsset?.config.id || 'abb_irb6760';
+  assetSelectionPanel.setCurrent(activeAsset?.config.id || DEFAULT_ASSET_ID);
   stationDebug.checked = false;
 }
 

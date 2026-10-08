@@ -12,6 +12,25 @@
           <h1>Digital Twin 3d Visualization Demo</h1>
           <p class="subtitle">Interactive Demonstration</p>
         </div>
+        <div class="asset-switcher" data-asset-switcher>
+          <button type="button" class="asset-switcher-button" data-asset-switcher-button aria-haspopup="dialog" aria-expanded="false">
+            <i data-lucide="box" aria-hidden="true"></i>
+            <span class="asset-switcher-text">
+              <strong data-asset-current-name>Loading…</strong>
+              <small data-asset-current-type></small>
+            </span>
+            <span class="summary-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="asset-menu" data-asset-menu role="dialog" aria-label="Choose an asset" hidden>
+            <input type="search" class="asset-menu-search" data-asset-search placeholder="Search assets…" aria-label="Search assets" autocomplete="off" />
+            <div class="asset-menu-list" data-asset-list></div>
+            <div class="asset-menu-footer">
+              <button type="button" class="asset-menu-import" data-asset-import-button>Import 3D / CAD file</button>
+              <small>STEP, IGES, GLB, glTF, STL, OBJ, FBX, 3MF · kept on this device</small>
+            </div>
+          </div>
+          <input type="file" data-asset-import hidden />
+        </div>
         <div class="header-meta">
           <div class="view-mode" aria-live="polite">
             <span>View Mode</span>
@@ -23,22 +42,6 @@
 
       <section class="workspace" aria-label="Digital twin workspace">
         <aside class="sidebar" aria-label="Asset controls and information">
-          <details class="sidebar-card asset-selection-card" data-asset-selection-card open>
-            <summary><span class="card-title"><i data-lucide="box" aria-hidden="true"></i>Digital Twin Asset</span><span class="summary-chevron" aria-hidden="true"></span></summary>
-            <div class="card-content asset-selection-content">
-              <label for="asset-select">Select Asset</label>
-              <select id="asset-select" data-asset-select></select>
-              <input id="asset-import" type="file" data-asset-import hidden />
-              <button type="button" class="import-button" data-asset-import-button>Import 3D / CAD File</button>
-              <small class="import-hint">STEP, IGES, GLB, glTF, STL, OBJ, FBX, 3MF</small>
-              <p class="asset-status" data-asset-status role="status" hidden></p>
-              <div class="saved-model" data-saved-model hidden>
-                <span>Saved on this device</span>
-                <button type="button" data-forget-model>Remove</button>
-              </div>
-            </div>
-          </details>
-
           <details class="sidebar-card station-card" data-station-card hidden>
             <summary><span class="card-title"><i data-lucide="move-3d" aria-hidden="true"></i>Station Scene</span><span class="summary-chevron" aria-hidden="true"></span></summary>
             <div class="card-content">
@@ -64,7 +67,7 @@
                 <div><dt>Box Rotation</dt><dd data-station-box-rotation>—</dd></div>
                 <div><dt>Current Station State</dt><dd data-station-state>IDLE</dd></div>
               </dl>
-              <button type="button" class="import-button" data-station-exit>Back to Asset Selection</button>
+              <button type="button" class="import-button" data-station-exit>Leave Station</button>
             </div>
           </details>
 
@@ -252,6 +255,7 @@
 
         <section id="viewport" aria-label="3D viewport">
           <div class="viewport-label"></div>
+          <p class="viewport-status" data-asset-status role="status" hidden></p>
         </section>
       </section>
 
