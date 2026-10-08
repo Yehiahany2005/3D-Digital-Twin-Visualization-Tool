@@ -93,9 +93,11 @@ function cadFaceTriangles(geometry, seed) {
   return triangles;
 }
 
-// Triangles reachable from the seed without crossing a sharp edge. Neighbours are
-// found through shared vertex positions, so this also works for unindexed meshes.
-function smoothRegionTriangles(geometry, seed) {
+// Which triangles share each vertex position. Built once per geometry: hover previews ask
+// for many regions of the same mesh.
+const adjacencyCache = new WeakMap();
+function adjacency(geometry) {
+  if (adjacencyCache.has(geometry)) return adjacencyCache.get(geometry);
   const position = geometry.attributes.position;
   geometry.computeBoundingBox();
   const size = geometry.boundingBox.getSize(new THREE.Vector3()).length() || 1;
@@ -113,6 +115,15 @@ function smoothRegionTriangles(geometry, seed) {
       trianglesByKey.get(key).push(triangle);
     });
   }
+  const result = { vertexKeys, trianglesByKey };
+  adjacencyCache.set(geometry, result);
+  return result;
+}
+
+// Triangles reachable from the seed without crossing a sharp edge. Neighbours are
+// found through shared vertex positions, so this also works for unindexed meshes.
+function smoothRegionTriangles(geometry, seed) {
+  const { vertexKeys, trianglesByKey } = adjacency(geometry);
 
   const normals = new Map();
   const normalOf = (triangle) => {
@@ -167,12 +178,28 @@ function closestPointToNormalLines(samples, axis, anchor) {
   return rhs.applyMatrix3(matrix.invert());
 }
 
+// Results per geometry, keyed by every triangle of the analysed surface, so hovering anywhere
+// on a surface that was already analysed is instant.
+const resultCache = new WeakMap();
+
+// Returns { kind: 'round' | 'flat' | 'curved' | 'point', axis, pivot, radius?, triangles }.
 export function analyzeSurface(mesh, seedTriangle) {
   const geometry = mesh.geometry;
+  if (!resultCache.has(geometry)) resultCache.set(geometry, new Map());
+  const cache = resultCache.get(geometry);
+  if (cache.has(seedTriangle)) return cache.get(seedTriangle);
+  const result = analyzeRegion(geometry, seedTriangle);
+  result.triangles.forEach((triangle) => cache.set(triangle, result));
+  cache.set(seedTriangle, result);
+  return result;
+}
+
+function analyzeRegion(geometry, seedTriangle) {
   const triangles = cadFaceTriangles(geometry, seedTriangle) || smoothRegionTriangles(geometry, seedTriangle);
+  const withTriangles = (result) => ({ ...result, triangles });
   const samples = triangles.map((triangle) => readTriangle(geometry, triangle)).filter((sample) => sample.area > 0);
   const seed = readTriangle(geometry, seedTriangle);
-  if (!samples.length) return { kind: 'point', axis: seed.normal, pivot: seed.centroid, triangleCount: 0 };
+  if (!samples.length) return withTriangles({ kind: 'point', axis: seed.normal, pivot: seed.centroid, triangleCount: 0 });
 
   let totalArea = 0;
   const centre = new THREE.Vector3();
@@ -191,7 +218,7 @@ export function analyzeSurface(mesh, seedTriangle) {
 
   if (second.value < FLAT_THRESHOLD) {
     const axis = meanNormal.lengthSq() > 0 ? meanNormal.normalize() : seed.normal;
-    return { kind: 'flat', axis, pivot: centre, triangleCount: samples.length };
+    return withTriangles({ kind: 'flat', axis, pivot: centre, triangleCount: samples.length });
   }
 
   if (third.value < ROUND_THRESHOLD) {
@@ -202,10 +229,10 @@ export function analyzeSurface(mesh, seedTriangle) {
         const offset = centroid.clone().sub(pivot);
         return sum + area * offset.sub(axis.clone().multiplyScalar(offset.dot(axis))).length();
       }, 0) / totalArea;
-      return { kind: 'round', axis, pivot, radius, triangleCount: samples.length };
+      return withTriangles({ kind: 'round', axis, pivot, radius, triangleCount: samples.length });
     }
   }
 
   const pivot = closestPointToNormalLines(samples) || centre;
-  return { kind: 'curved', axis: seed.normal, pivot, triangleCount: samples.length };
+  return withTriangles({ kind: 'curved', axis: seed.normal, pivot, triangleCount: samples.length });
 }

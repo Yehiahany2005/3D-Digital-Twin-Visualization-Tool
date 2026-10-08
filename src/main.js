@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   Box,
   Clapperboard,
+  Crosshair,
   Cpu,
   Move3d,
   PlayCircle,
@@ -21,7 +22,8 @@ import { JointControls } from './ui/JointControls.js';
 import { CommandsPanel } from './ui/CommandsPanel.js';
 import { RigEditorPanel } from './ui/RigEditorPanel.js';
 import { AnimationEditorPanel } from './ui/AnimationEditorPanel.js';
-import { JointGizmo, PartHighlight, SelectionOutline, ViewportPicker } from './scene/RigHelpers.js';
+import { ReachPanel } from './ui/ReachPanel.js';
+import { JointGizmo, PartHighlight, ReachMarker, SelectionOutline, SurfacePreview, ToolMarkers, ViewportPicker } from './scene/RigHelpers.js';
 import { loadSavedRig } from './motion/RigStore.js';
 import { AssetManager } from './scene/AssetManager.js';
 import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
@@ -32,7 +34,7 @@ import { lastAsset, listStoredImports, rememberLastAsset } from './assets/Import
 import { getAssetConfig } from './assets/AssetRegistry.js';
 import './style.css';
 
-createIcons({ icons: { Box, Clapperboard, Cpu, Move3d, PlayCircle, SlidersHorizontal, TerminalSquare, Wrench } });
+createIcons({ icons: { Box, Clapperboard, Crosshair, Cpu, Move3d, PlayCircle, SlidersHorizontal, TerminalSquare, Wrench } });
 
 function updateClock() {
   const timeElement = document.querySelector('[data-current-time]');
@@ -135,12 +137,23 @@ const commandsPanel = new CommandsPanel({
   stopButton: document.querySelector('[data-motion-stop]'),
 });
 
+const picker = new ViewportPicker({ domElement: rendererManager.renderer.domElement, camera: cameraManager.camera });
 const rigEditor = new RigEditorPanel({
   card: document.querySelector('[data-rig-editor]'),
-  picker: new ViewportPicker({ domElement: rendererManager.renderer.domElement, camera: cameraManager.camera }),
+  picker,
+  surfacePreview: new SurfacePreview(sceneManager.scene),
   outline: new SelectionOutline(sceneManager.scene),
   highlight: new PartHighlight(sceneManager.scene),
   gizmo: new JointGizmo(sceneManager.scene),
+});
+
+const reachPanel = new ReachPanel({
+  bar: document.querySelector('[data-reach-bar]'),
+  picker,
+  marker: new ReachMarker(sceneManager.scene),
+  toolMarkers: new ToolMarkers(sceneManager.scene),
+  floor,
+  onNeedJoints: () => rigEditor.open(),
 });
 
 const animationEditorCard = document.querySelector('[data-animation-editor]');
@@ -195,6 +208,7 @@ function handleAssetLoaded(asset) {
   commandsPanel.setRig(asset.rig, asset.player);
   rigEditor.setAsset(asset);
   animationEditor.setAsset(asset);
+  reachPanel.setAsset(asset);
   assetSelectionPanel.update(asset);
   if (stationMode && asset.config.id === 'abb_irb6760') void stationScene.show(asset);
 }
@@ -246,8 +260,9 @@ void startUp();
 
 async function openStation() {
   stationMode = true;
-  // The station cycle drives the robot itself, so sequences would fight it.
+  // The station cycle drives the robot itself, so sequences and Reach would fight it.
   animationEditorCard.hidden = true;
+  reachPanel.setHidden(true);
   await assetManager.select('abb_irb6760');
   if (activeAsset?.config.id === 'abb_irb6760') await stationScene.show(activeAsset);
   stationCard.hidden = false;
@@ -270,6 +285,7 @@ function closeStation() {
   }
   stationCard.hidden = true;
   animationEditorCard.hidden = false;
+  reachPanel.setHidden(false);
   assetSelectionPanel.setCurrent(activeAsset?.config.id || DEFAULT_ASSET_ID);
   stationDebug.checked = false;
 }
@@ -292,6 +308,7 @@ function render() {
   activeAsset?.player.update(deltaTime);
   jointControls.update();
   rigEditor.update();
+  reachPanel.update();
   assetManager.update(deltaTime);
   stationScene.update(deltaTime);
   visualizationManager?.update(deltaTime);

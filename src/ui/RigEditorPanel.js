@@ -9,8 +9,6 @@ const TYPE_DEFAULTS = {
 };
 const TYPE_LABELS = { revolute: 'rotates', prismatic: 'slides', aim: 'follows (rotate)', stretch: 'follows (slide)' };
 const TYPE_ICONS = { revolute: '⟳', prismatic: '↕', aim: '⤷', stretch: '⤷' };
-// The joint list gets a search box once it holds more than this many joints.
-const JOINT_FILTER_FROM = 6;
 const WORLD_AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
 // Direction buttons in plain words. 'up' is vertical; 'view' and 'right' are the horizontal
 // directions into the screen and across it, so they match what the user is looking at.
@@ -52,12 +50,13 @@ function isOriginalDescendant(path, ancestorPath) {
 }
 
 export class RigEditorPanel {
-  constructor({ card, picker, outline, highlight, gizmo }) {
+  constructor({ card, picker, outline, highlight, gizmo, surfacePreview }) {
     this.card = card;
     this.picker = picker;
     this.outline = outline;
     this.highlight = highlight;
     this.gizmo = gizmo;
+    this.surfacePreview = surfacePreview;
     this.asset = null;
     this.meshes = [];
     this.selection = [];
@@ -80,7 +79,8 @@ export class RigEditorPanel {
   bindEvents() {
     this.card.addEventListener('toggle', () => {
       if (this.card.open) {
-        this.setPickMode('parts');
+        // Keep a pick already asked for (e.g. "Set tool point" from Reach); otherwise pick parts.
+        this.setPickMode(this.pickMode || 'parts');
       } else {
         this.setPickMode(null);
         this.gizmo.hide();
@@ -133,7 +133,6 @@ export class RigEditorPanel {
       if (file) await this.importRig(file);
     });
     this.query('[data-reset-rig]').addEventListener('click', () => this.resetRig());
-    this.query('[data-joint-filter]').addEventListener('input', () => this.renderJointList());
   }
 
   setAsset(asset) {
@@ -155,7 +154,6 @@ export class RigEditorPanel {
     this.resetForm();
     this.refreshSelection();
     this.renderJointList();
-    this.picker.target = asset.model;
     if (this.pickMode) this.setPickMode(this.pickMode);
   }
 
@@ -168,14 +166,33 @@ export class RigEditorPanel {
 
   setPickMode(mode) {
     this.pickMode = this.asset ? mode : null;
+    this.updatePickButtons();
+    if (this.pickMode) {
+      this.picker.setHandler((hit, event) => this.handlePick(hit, event), this.asset.model, {
+        owner: 'joint-setup',
+        // Finding an axis previews what a click would pick, as the pointer moves.
+        hover: this.pickMode === 'surface' ? (hit) => this.previewSurface(hit) : null,
+        // Another tool (e.g. Reach) took over the viewport clicks.
+        onRelease: () => {
+          this.pickMode = null;
+          this.updatePickButtons();
+          this.surfacePreview.hide();
+        },
+      });
+    } else if (this.picker.owner === 'joint-setup') {
+      this.picker.setHandler(null);
+    }
+    if (this.pickMode !== 'surface') this.surfacePreview.hide();
+    if (this.pickMode === 'surface') this.showMessage('Move over the model: the highlighted surface and the dashed line show the axis the joint would turn around. Round shafts and holes work best. Click to use it.');
+    if (this.pickMode === 'target') this.showMessage('Click the point this joint should follow.');
+  }
+
+  updatePickButtons() {
     const selectButton = this.query('[data-select-parts]');
     selectButton.setAttribute('aria-pressed', String(this.pickMode === 'parts'));
     selectButton.classList.toggle('is-active', this.pickMode === 'parts');
     this.query('[data-pick-surface]').classList.toggle('is-active', this.pickMode === 'surface');
     this.query('[data-pick-target]').classList.toggle('is-active', this.pickMode === 'target');
-    this.picker.setHandler(this.pickMode ? (hit, event) => this.handlePick(hit, event) : null, this.asset?.model);
-    if (this.pickMode === 'surface') this.showMessage('Click a round shaft, hole or flat face on the model.');
-    if (this.pickMode === 'target') this.showMessage('Click the point this joint should follow.');
   }
 
   handlePick(hit, event) {
@@ -329,6 +346,35 @@ export class RigEditorPanel {
     });
   }
 
+  // Hovering in "find axis" mode: show the surface that would be used and the axis through it.
+  previewSurface(hit) {
+    if (!hit || this.pickMode !== 'surface') {
+      this.surfacePreview.hide();
+      return;
+    }
+    const mesh = hit.object;
+    const result = analyzeSurface(mesh, hit.faceIndex);
+    const worldPivot = result.pivot.clone().applyMatrix4(mesh.matrixWorld);
+    const worldAxis = result.axis.clone().transformDirection(mesh.matrixWorld);
+    const scale = mesh.getWorldScale(new THREE.Vector3()).x;
+    this.surfacePreview.show({
+      mesh,
+      result,
+      worldPivot,
+      worldAxis,
+      worldRadius: result.kind === 'round' ? result.radius * scale : null,
+      size: this.modelSize,
+    });
+    const millimetres = scale * 1000;
+    const found = {
+      round: `Round surface, Ø ${round(result.radius * 2 * millimetres, 1)} mm: the joint will turn around the dashed line through its centre. Click to use it.`,
+      flat: 'Flat face: the joint will turn around the dashed line standing straight out of it. Round shafts or holes usually give a better axis.',
+      curved: 'Curved surface: the pivot goes to its centre of curvature. Check the direction afterwards.',
+      point: "Can't read this surface; clicking uses the spot itself.",
+    };
+    this.showMessage(found[result.kind]);
+  }
+
   pickSurface(hit) {
     const mesh = hit.object;
     const result = analyzeSurface(mesh, hit.faceIndex);
@@ -343,6 +389,7 @@ export class RigEditorPanel {
     this.draft.pivot = pivot;
     this.draft.axis = axis;
     this.draft.pivotSource = 'surface';
+    this.surfacePreview.hide();
     this.setPickMode('parts');
     const messages = {
       round: `Round surface found (Ø ${round(result.radius * 2 * scale, 1)} mm). The axis runs through its centre.`,
@@ -713,6 +760,7 @@ export class RigEditorPanel {
     const definition = structuredClone(this.rig.definition);
     const removed = definition.joints.find((joint) => joint.id === id);
     definition.joints = definition.joints.filter((joint) => joint.id !== id);
+    definition.tools = (definition.tools || []).filter((tool) => tool.joint !== id);
     definition.joints.forEach((joint) => {
       if (joint.parent === id) joint.parent = removed.parent || null;
       ['aim', 'stretch'].forEach((key) => {
@@ -747,9 +795,6 @@ export class RigEditorPanel {
     if (!this.rig) return;
     const joints = this.rig.joints;
     this.query('[data-joint-count]').textContent = joints.length ? String(joints.length) : '';
-    const filterInput = this.query('[data-joint-filter]');
-    filterInput.hidden = joints.length <= JOINT_FILTER_FROM;
-    const filter = filterInput.hidden ? '' : filterInput.value.trim().toLowerCase();
 
     if (this.rig.warnings.length) {
       const item = document.createElement('li');
@@ -771,18 +816,7 @@ export class RigEditorPanel {
       return;
     }
 
-    // Searching shows a flat list of matches; otherwise joints are threads, like nested comments.
-    if (filter) {
-      const matches = joints.filter((joint) => joint.name.toLowerCase().includes(filter));
-      if (!matches.length) list.appendChild(this.emptyJointItem(`No joint matches "${filterInput.value.trim()}".`));
-      matches.forEach((joint) => {
-        const item = document.createElement('li');
-        item.className = 'joint-node';
-        item.appendChild(this.createJointRow(joint, 0));
-        list.appendChild(item);
-      });
-      return;
-    }
+    // Joints are threads, like nested comments.
     const children = this.jointChildren();
     (children.get(null) || []).forEach((joint) => list.appendChild(this.createJointNode(joint, children)));
   }
