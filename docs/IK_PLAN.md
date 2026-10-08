@@ -402,6 +402,7 @@ Not detected in v1 (documented limits): self-collision (arm hitting itself), col
 | 2026-10-08 | **One tool tip per machine**, set from the Reach bar (not Joint Setup). Several tool points confused users; the data format still allows a list for later (tool changers). |
 | 2026-10-08 | Modes renamed for clarity: Point down → **Straight down**, Face surface → **Square to surface**. Each has an icon and a one-line hint when clicked. |
 | 2026-10-08 | "Pick from surface" renamed **Find axis on model**, with a live hover preview of the detected axis. "Find a joint" search removed. |
+| 2026-10-08 | **Find axis on model** renamed **Select from Surface**. "Reached, but part of the machine dips below the floor." now shows in orange instead of green. |
 
 ---
 
@@ -416,7 +417,7 @@ Not detected in v1 (documented limits): self-collision (arm hitting itself), col
 | Reach toolbar | `src/ui/ReachPanel.js`, `index.html` | Top-left over the 3D view: Reach toggle, Tool tip control, modes **Straight down** (default) / **Any angle** / **Square to surface** with icons, status line with action button. On the floor Straight down and Square to surface behave the same (the floor faces up); they differ on walls and sloped faces. Hover: quick solve every frame, full diagnosis after the pointer rests 180 ms. Click: full diagnosis, then `MotionPlayer.moveTo`. Esc stops. Hidden in Station. |
 | Viewport picking | `src/scene/RigHelpers.js` `ViewportPicker` | Owner-based: Reach and Joint Setup take turns; several targets (model + floor); hover callback; hit filter (Reach ignores the moving machine itself). |
 | Markers | `RigHelpers.js` `ToolMarkers`, `ReachMarker` | Tool point (pink dot + arrow); target (green = reachable, amber = reachable with a warning, red = not). |
-| "Find axis on model" preview (Joint Setup) | `src/motion/surfaceAnalysis.js`, `RigHelpers.js` `SurfacePreview`, `RigEditorPanel.js` | Hovering shows the detected surface in amber, the axis as a dashed line, the pivot dot and a ring the size of the shaft/hole, with "Round surface, Ø N mm" or "Flat face" text. Surface analysis caches adjacency and results so hover stays smooth. |
+| "Select from Surface" preview (Joint Setup) | `src/motion/surfaceAnalysis.js`, `RigHelpers.js` `SurfacePreview`, `RigEditorPanel.js` | Hovering shows the detected surface in amber, the axis as a dashed line, the pivot dot and a ring the size of the shaft/hole, with "Round surface, Ø N mm" or "Flat face" text. Surface analysis caches adjacency and results so hover stays smooth. |
 | Built-in ABB rig | `src/rigs/abbIrb6760.js` | Ships with a tool point at the flange (data only; the solver has no vendor code). |
 
 Verified in the browser: ABB flange lands on the clicked spot pointing down; far spots report "out of reach by N m"; a STEP import without joints offers "Set up joints"; a STEP with a single slide reports its limited reach; picking the tool tip on the flange works and turns Reach on; the axis preview appears on round and flat surfaces; Station hides the bar.
