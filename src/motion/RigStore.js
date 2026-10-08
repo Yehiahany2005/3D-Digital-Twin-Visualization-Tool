@@ -12,11 +12,25 @@ export function rigStorageKey(config) {
 }
 
 export function loadSavedRig(config) {
+  return loadRigByKey(rigStorageKey(config));
+}
+
+// By storage key (see rigStorageKey), for rigs travelling inside scene files.
+export function loadRigByKey(key) {
   try {
-    const text = window.localStorage.getItem(STORAGE_PREFIX + rigStorageKey(config));
+    const text = window.localStorage.getItem(STORAGE_PREFIX + key);
     return text ? JSON.parse(text) : null;
   } catch {
     return null;
+  }
+}
+
+export function saveRigByKey(key, definition) {
+  try {
+    window.localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(definition));
+    return true;
+  } catch {
+    return false;
   }
 }
 

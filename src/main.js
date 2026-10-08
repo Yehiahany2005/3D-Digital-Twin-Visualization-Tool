@@ -4,10 +4,19 @@ import {
   Clapperboard,
   Crosshair,
   Cpu,
+  LayoutGrid,
+  ListTree,
+  MousePointer2,
+  Move,
   Move3d,
   PlayCircle,
+  Plus,
+  Redo2,
+  RotateCw,
   SlidersHorizontal,
   TerminalSquare,
+  Undo2,
+  Upload,
   Wrench,
   createIcons,
 } from 'lucide';
@@ -32,9 +41,11 @@ import { fitEnvironment } from './scene/fitEnvironment.js';
 import { StationScene } from './station/StationScene.js';
 import { lastAsset, listStoredImports, rememberLastAsset } from './assets/ImportStore.js';
 import { getAssetConfig } from './assets/AssetRegistry.js';
+import { SceneMode } from './studio/SceneMode.js';
+import { lastMode, rememberLastMode } from './studio/SceneStore.js';
 import './style.css';
 
-createIcons({ icons: { Box, Clapperboard, Crosshair, Cpu, Move3d, PlayCircle, SlidersHorizontal, TerminalSquare, Wrench } });
+createIcons({ icons: { Box, Clapperboard, Crosshair, Cpu, LayoutGrid, ListTree, MousePointer2, Move, Move3d, PlayCircle, Plus, Redo2, RotateCw, SlidersHorizontal, TerminalSquare, Undo2, Upload, Wrench } });
 
 function updateClock() {
   const timeElement = document.querySelector('[data-current-time]');
@@ -96,6 +107,8 @@ const DEFAULT_ASSET_ID = 'abb_irb6760';
 let visualizationManager;
 let activeAsset;
 let stationMode = false;
+// 'machine': one model at a time (the original app). 'scene': several models and parts together.
+let mode = 'machine';
 const stationScene = new StationScene({
   scene: sceneManager.scene,
   cameraManager,
@@ -185,8 +198,10 @@ function handleAssetLoaded(asset) {
   activeAsset = asset;
   rememberLastAsset(asset.config.id);
   ensureRig(asset);
+  // In Scene mode the machine stays loaded but out of sight until Machine mode is opened again.
+  asset.model.visible = mode === 'machine';
   if (visualizationManager) {
-    visualizationManager.replaceRobot(asset.model);
+    if (mode === 'machine') visualizationManager.replaceRobot(asset.model);
   } else {
     visualizationManager = new DigitalTwinViewManager({
       scene: sceneManager.scene,
@@ -197,6 +212,18 @@ function handleAssetLoaded(asset) {
       modeElement: visualizationMode,
     });
   }
+  if (mode === 'machine') fitMachineEnvironment(asset);
+
+  jointControls.setRig(asset.rig, asset.player);
+  commandsPanel.setRig(asset.rig, asset.player);
+  rigEditor.setAsset(asset);
+  animationEditor.setAsset(asset);
+  if (mode === 'machine') reachPanel.setAsset(asset);
+  assetSelectionPanel.update(asset);
+  if (stationMode && asset.config.id === 'abb_irb6760') void stationScene.show(asset);
+}
+
+function fitMachineEnvironment(asset) {
   fitEnvironment({
     model: asset.model,
     scene: sceneManager.scene,
@@ -204,14 +231,6 @@ function handleAssetLoaded(asset) {
     grid: visualizationManager.grid,
     lightGroups: [lightingGroup, visualizationManager.digitalLights],
   });
-
-  jointControls.setRig(asset.rig, asset.player);
-  commandsPanel.setRig(asset.rig, asset.player);
-  rigEditor.setAsset(asset);
-  animationEditor.setAsset(asset);
-  reachPanel.setAsset(asset);
-  assetSelectionPanel.update(asset);
-  if (stationMode && asset.config.id === 'abb_irb6760') void stationScene.show(asset);
 }
 
 const assetManager = new AssetManager({
@@ -255,6 +274,7 @@ async function startUp() {
   await assetManager.select(first);
   if (!assetManager.currentAsset) await assetManager.select(DEFAULT_ASSET_ID);
   assetSelectionPanel.setLoading(false);
+  if (lastMode() === 'scene') await setMode('scene');
 }
 
 void startUp();
@@ -297,6 +317,91 @@ stationStart.addEventListener('click', () => stationScene.startCycle());
 stationReset.addEventListener('click', () => stationScene.resetCycle());
 stationSpeed.addEventListener('change', () => stationScene.setCycleSpeed(Number(stationSpeed.value)));
 
+// ---- Machine mode / Scene mode ------------------------------------------------------------------
+
+const sceneOutline = new SelectionOutline(sceneManager.scene);
+const sceneMode = new SceneMode({
+  scene: sceneManager.scene,
+  cameraManager,
+  controls,
+  renderer: rendererManager.renderer,
+  picker,
+  outline: sceneOutline,
+  reachPanel,
+  ui: {
+    toolbar: document.querySelector('[data-scene-toolbar]'),
+    toolButtons: [...document.querySelectorAll('[data-scene-tool]')],
+    snap: document.querySelector('[data-scene-snap]'),
+    undo: document.querySelector('[data-scene-undo]'),
+    redo: document.querySelector('[data-scene-redo]'),
+    addButton: document.querySelector('[data-scene-add]'),
+    drawer: document.querySelector('[data-add-drawer]'),
+    explorerList: document.querySelector('[data-explorer-list]'),
+    explorerCount: document.querySelector('[data-explorer-count]'),
+    properties: document.querySelector('[data-properties]'),
+    sceneName: document.querySelector('[data-scene-name]'),
+    sceneList: document.querySelector('[data-scene-list]'),
+    sceneNew: document.querySelector('[data-scene-new]'),
+    sceneDelete: document.querySelector('[data-scene-delete]'),
+    sceneExport: document.querySelector('[data-scene-export]'),
+    sceneOpenFile: document.querySelector('[data-scene-open-file]'),
+    sceneFileInput: document.querySelector('[data-scene-file-input]'),
+    saveState: document.querySelector('[data-scene-save-state]'),
+    titleName: document.querySelector('[data-scene-title-name]'),
+    titleMeta: document.querySelector('[data-scene-title-meta]'),
+  },
+  onStatus: (message) => assetSelectionPanel.setStatus(message),
+  onError: (message) => assetSelectionPanel.showError(message),
+  // "Joints & animations" on a scene item: open that model in Machine mode.
+  onEditInMachine: async (assetId) => {
+    await setMode('machine');
+    if (getAssetConfig(assetId)) await assetManager.select(assetId);
+    rigEditor.open();
+  },
+  onEnvironmentChange: (root, span) => {
+    if (!visualizationManager) return;
+    visualizationManager.replaceRobot(root, { force: true });
+    fitEnvironment({ model: root, span, scene: sceneManager.scene, floor, grid: visualizationManager.grid, lightGroups: [lightingGroup, visualizationManager.digitalLights] });
+  },
+});
+
+const modeTabs = [...document.querySelectorAll('[data-mode-tab]')];
+const modePanes = [...document.querySelectorAll('[data-mode-pane]')];
+const assetSwitcher = document.querySelector('[data-asset-switcher]');
+const sceneTitle = document.querySelector('[data-scene-title]');
+modeTabs.forEach((tab) => tab.addEventListener('click', () => setMode(tab.dataset.modeTab)));
+
+async function setMode(next) {
+  if (next === mode) return;
+  mode = next;
+  rememberLastMode(next);
+  modeTabs.forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.modeTab === next)));
+  modePanes.forEach((pane) => { pane.hidden = pane.dataset.modePane !== next; });
+  assetSwitcher.hidden = next === 'scene';
+  sceneTitle.hidden = next !== 'scene';
+  document.body.dataset.mode = next;
+  reachPanel.setActive(false);
+
+  if (next === 'scene') {
+    if (stationMode) closeStation();
+    // Joint Setup picks on the machine; nothing of Machine mode may keep the viewport's clicks.
+    rigEditor.card.open = false;
+    activeAsset?.player.stop();
+    if (activeAsset) activeAsset.model.visible = false;
+    await sceneMode.enter();
+  } else {
+    sceneMode.exit();
+    reachPanel.setHidden(false);
+    if (activeAsset) {
+      activeAsset.model.visible = true;
+      reachPanel.setAsset(activeAsset);
+      visualizationManager?.replaceRobot(activeAsset.model, { force: true });
+      fitMachineEnvironment(activeAsset);
+      cameraManager.frameObject(activeAsset.model, controls);
+    }
+  }
+}
+
 function handleResize() {
   cameraManager.updateAspectRatio();
   rendererManager.resize(container);
@@ -310,6 +415,7 @@ function render() {
   jointControls.update();
   rigEditor.update();
   reachPanel.update();
+  sceneMode.update(deltaTime);
   assetManager.update(deltaTime);
   stationScene.update(deltaTime);
   visualizationManager?.update(deltaTime);
@@ -319,3 +425,6 @@ function render() {
 }
 
 render();
+
+// Development only (npm run dev): lets automated browser checks look inside the app.
+if (import.meta.env.DEV) window.__twin = { sceneMode, assetManager, get mode() { return mode; }, get activeAsset() { return activeAsset; }, rendererManager };

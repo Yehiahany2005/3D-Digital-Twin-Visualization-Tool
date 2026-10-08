@@ -365,17 +365,25 @@ export class ReachPanel {
 
   // ---- Picking -----------------------------------------------------------------------
 
+  // What can be reached for: this machine and the floor, plus (in a scene) everything else placed
+  // there. Asked at each click, so items added meanwhile count.
   targets() {
-    return [this.asset.model, this.floor].filter(Boolean);
+    return () => [this.asset?.model, this.floor, ...(this.extraTargets?.() || [])].filter(Boolean);
   }
 
-  // The moving machine itself is not a place to reach for.
+  // In a scene, the other items are places to reach for too.
+  setExtraTargets(provider) {
+    this.extraTargets = provider;
+  }
+
+  // The moving machine itself is not a place to reach for. Joint groups are compared, not joint
+  // names: two copies of the same robot have the same joint names.
   isOwnMovingPart(object) {
     const resolved = this.currentTool();
     if (!resolved) return false;
-    const ids = new Set(resolved.chain.map((joint) => joint.id));
+    const groups = new Set(resolved.chain.map((joint) => joint.group));
     for (let current = object; current; current = current.parent) {
-      if (current.userData.rigJointId !== undefined) return ids.has(current.userData.rigJointId);
+      if (current.userData.rigJointId !== undefined) return groups.has(current);
     }
     return false;
   }
