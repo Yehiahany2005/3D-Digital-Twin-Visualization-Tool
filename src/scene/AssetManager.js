@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { AnimationController } from './AnimationController.js';
 import { getAssetConfig } from '../assets/AssetRegistry.js';
 import { ModelLoader, UNIT_SCALES } from '../loaders/ModelLoader.js';
+import { downloadModel } from '../loaders/download.js';
 
 const UP_AXIS_ROTATIONS = {
   y: new THREE.Euler(0, 0, 0),
@@ -10,9 +11,7 @@ const UP_AXIS_ROTATIONS = {
 
 async function readSource(config) {
   if (config.file) return { buffer: await config.file.arrayBuffer(), fileName: config.file.name };
-  const response = await fetch(config.model);
-  if (!response.ok) throw new Error(`Could not download ${config.model} (HTTP ${response.status}).`);
-  return { buffer: await response.arrayBuffer(), fileName: config.model };
+  return { buffer: await downloadModel(config.model, config.name), fileName: config.model };
 }
 
 export class AssetManager {
