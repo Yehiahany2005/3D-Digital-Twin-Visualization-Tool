@@ -23,7 +23,7 @@ import { CommandsPanel } from './ui/CommandsPanel.js';
 import { RigEditorPanel } from './ui/RigEditorPanel.js';
 import { AnimationEditorPanel } from './ui/AnimationEditorPanel.js';
 import { ReachPanel } from './ui/ReachPanel.js';
-import { JointGizmo, PartHighlight, ReachMarker, SelectionOutline, SurfacePreview, ToolMarkers, ViewportPicker } from './scene/RigHelpers.js';
+import { JointGizmo, LinePickPreview, PartHighlight, ReachMarker, SelectionOutline, SurfacePreview, ToolMarkers, ViewportPicker } from './scene/RigHelpers.js';
 import { loadSavedRig } from './motion/RigStore.js';
 import { AssetManager } from './scene/AssetManager.js';
 import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
@@ -142,6 +142,7 @@ const rigEditor = new RigEditorPanel({
   card: document.querySelector('[data-rig-editor]'),
   picker,
   surfacePreview: new SurfacePreview(sceneManager.scene),
+  linePreview: new LinePickPreview(sceneManager.scene),
   outline: new SelectionOutline(sceneManager.scene),
   highlight: new PartHighlight(sceneManager.scene),
   gizmo: new JointGizmo(sceneManager.scene),

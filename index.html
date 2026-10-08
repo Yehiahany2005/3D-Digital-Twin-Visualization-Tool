@@ -139,12 +139,14 @@
                   </div>
                 </div>
 
-                <span class="editor-subtitle">Axis &amp; pivot</span>
-                <div class="button-row">
+                <span class="editor-subtitle" data-axis-title>Axis &amp; pivot</span>
+                <p class="editor-hint" data-axis-note hidden></p>
+                <div class="button-row" data-axis-pick-row>
                   <button type="button" data-pick-surface title="Hover a round shaft, hole or flat face to preview the axis the joint turns around, then click">Select from Surface</button>
+                  <button type="button" data-pick-line title="Click two points on the model: the part slides from the first toward the second" hidden>Two points</button>
                   <button type="button" data-part-centre>Part centre</button>
                 </div>
-                <div class="button-row axis-buttons">
+                <div class="button-row axis-buttons" data-axis-buttons>
                   <button type="button" data-direction="0"></button>
                   <button type="button" data-direction="1"></button>
                   <button type="button" data-direction="2"></button>
@@ -152,6 +154,7 @@
                 </div>
                 <div class="range-fields" data-limit-fields>
                   <span class="editor-subtitle">Range &amp; speed</span>
+                  <small class="editor-hint" data-range-hint></small>
                   <div class="limit-fields">
                     <label class="editor-field"><span>Min <small data-unit>°</small></span><input type="number" data-field="min" /></label>
                     <label class="editor-field"><span>Max <small data-unit>°</small></span><input type="number" data-field="max" /></label>

@@ -3,6 +3,8 @@ import * as THREE from 'three';
 const CLICK_TOLERANCE_PX = 5;
 const ACCENT = 0x69c7d3;
 const TARGET_COLOR = 0xf2b84b;
+const TRAVEL_COLOR = 0xb48cff;
+const LINE_SNAP_COLOR = 0x4cd38a;
 // Parts of the joint a follower (cylinder, rod) follows.
 export const LINK_COLOR = 0xb38cff;
 const DIM_COLOR = 0x111518;
@@ -208,8 +210,9 @@ function overlayMaterial(color) {
   return new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 });
 }
 
-// Arrow along the joint axis, a dot at the pivot, a ring for rotation, and an
-// optional marker for a linked joint's target point. Drawn on top of the model.
+// Arrow along the joint axis, a dot at the pivot, a ring for rotation, the travel of a slide
+// (a bar from min to max with an end stop at each end), and an optional marker for a linked
+// joint's target point. Drawn on top of the model.
 export class JointGizmo {
   constructor(scene) {
     this.group = new THREE.Group();
@@ -230,13 +233,21 @@ export class JointGizmo {
       new THREE.LineDashedMaterial({ color: TARGET_COLOR, depthTest: false, transparent: true }),
     );
     this.link.frustumCulled = false;
-    this.group.add(this.arrow, this.pivot, this.ring, this.target, this.link);
+    // Slide travel: where the part can go, measured from where it sits in the file.
+    this.travel = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: TRAVEL_COLOR, depthTest: false, transparent: true }),
+    );
+    this.travel.frustumCulled = false;
+    this.stops = [0, 1].map(() => new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.15, 24), overlayMaterial(TRAVEL_COLOR)));
+    this.group.add(this.arrow, this.pivot, this.ring, this.target, this.link, this.travel, ...this.stops);
     this.group.traverse((object) => { object.renderOrder = 1000; });
     scene.add(this.group);
   }
 
   // point/direction/target are in world space; size is the model's largest dimension.
-  show({ point, direction, type, target, size }) {
+  // travel (slides only): { from, to } in metres along direction, measured from point.
+  show({ point, direction, type, target, size, travel = null }) {
     const length = size * 0.3;
     const direction3 = direction.clone().normalize();
     this.arrow.position.copy(point).addScaledVector(direction3, type === 'prismatic' ? -length / 2 : 0);
@@ -248,6 +259,20 @@ export class JointGizmo {
     this.ring.position.copy(point);
     this.ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction3);
     this.ring.scale.setScalar(size * 0.08);
+    const showTravel = type === 'prismatic' && Boolean(travel);
+    this.travel.visible = showTravel;
+    this.stops.forEach((stop) => { stop.visible = showTravel; });
+    if (showTravel) {
+      const ends = [travel.from, travel.to].map((distance) => point.clone().addScaledVector(direction3, distance));
+      const positions = this.travel.geometry.attributes.position;
+      ends.forEach((end, index) => positions.setXYZ(index, end.x, end.y, end.z));
+      positions.needsUpdate = true;
+      this.stops.forEach((stop, index) => {
+        stop.position.copy(ends[index]);
+        stop.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction3);
+        stop.scale.setScalar(size * 0.025);
+      });
+    }
     this.target.visible = Boolean(target);
     this.link.visible = Boolean(target);
     if (target) {
@@ -352,6 +377,62 @@ export class ReachMarker {
       this.arrow.position.copy(point).addScaledVector(direction, -length);
       this.arrow.setDirection(direction.clone().normalize());
       this.arrow.setLength(length, length * 0.3, length * 0.15);
+    }
+    this.group.visible = true;
+  }
+
+  hide() {
+    this.group.visible = false;
+  }
+}
+
+// Live preview for "Two points": a dot under the pointer, then a line with an arrowhead from
+// the first point to the pointer. Green when the line is lined up with one of the model's axes.
+export class LinePickPreview {
+  constructor(scene) {
+    this.group = new THREE.Group();
+    this.group.name = 'LinePickPreview';
+    this.group.visible = false;
+    this.material = overlayMaterial(ACCENT);
+    this.start = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), this.material);
+    this.end = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), this.material);
+    this.head = new THREE.Mesh(new THREE.ConeGeometry(1, 2.6, 16), this.material);
+    this.line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: ACCENT, depthTest: false, transparent: true }),
+    );
+    this.line.frustumCulled = false;
+    this.group.add(this.start, this.end, this.head, this.line);
+    this.group.traverse((object) => { object.renderOrder = 1002; });
+    scene.add(this.group);
+  }
+
+  // World space. start null: only the dot under the pointer. size: the model's largest dimension.
+  show({ start, end, snapped = false, size }) {
+    const color = snapped ? LINE_SNAP_COLOR : ACCENT;
+    this.material.color.setHex(color);
+    this.line.material.color.setHex(color);
+    const radius = size * 0.013;
+    this.end.position.copy(end);
+    this.end.scale.setScalar(radius);
+    const drawLine = Boolean(start) && start.distanceTo(end) > radius;
+    this.start.visible = Boolean(start);
+    this.line.visible = drawLine;
+    this.head.visible = drawLine;
+    this.end.visible = !drawLine;
+    if (start) {
+      this.start.position.copy(start);
+      this.start.scale.setScalar(radius);
+    }
+    if (drawLine) {
+      const direction = end.clone().sub(start).normalize();
+      const positions = this.line.geometry.attributes.position;
+      positions.setXYZ(0, start.x, start.y, start.z);
+      positions.setXYZ(1, end.x, end.y, end.z);
+      positions.needsUpdate = true;
+      this.head.position.copy(end).addScaledVector(direction, -radius * 2);
+      this.head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+      this.head.scale.setScalar(radius * 1.5);
     }
     this.group.visible = true;
   }

@@ -12,8 +12,25 @@ export function formatJointValue(joint, value = joint.value) {
   return `${signed(value, 1)} mm`;
 }
 
+// A round 1 / 2 / 5 × 10ⁿ number close to value.
+export function niceNumber(value) {
+  if (!(value > 0)) return 1;
+  const power = 10 ** Math.floor(Math.log10(value));
+  const leading = value / power;
+  return (leading < 1.5 ? 1 : leading < 3.5 ? 2 : leading < 7.5 ? 5 : 10) * power;
+}
+
+// Slides jog by about a twentieth of their travel, so a small gripper and a long gantry
+// both move a useful amount per click. Base motion keeps a fixed 10 mm.
 function jogStep(joint) {
-  return joint.type === 'revolute' ? 5 : 10;
+  if (joint.type === 'revolute') return 5;
+  if (joint.kind === 'base') return 10;
+  return niceNumber((joint.max - joint.min) / 20);
+}
+
+function sliderStep(joint) {
+  if (joint.type === 'revolute') return 0.1;
+  return joint.kind !== 'base' && joint.max - joint.min < 100 ? 0.1 : 1;
 }
 
 export class JointControls {
@@ -94,7 +111,7 @@ export class JointControls {
       slider.type = 'range';
       slider.min = String(joint.min);
       slider.max = String(joint.max);
-      slider.step = joint.type === 'revolute' ? '0.1' : '1';
+      slider.step = String(sliderStep(joint));
       slider.setAttribute('aria-label', joint.name);
       slider.title = `${formatJointValue(joint, joint.min)} to ${formatJointValue(joint, joint.max)}`;
       slider.addEventListener('pointerdown', () => { entry.dragging = true; });
