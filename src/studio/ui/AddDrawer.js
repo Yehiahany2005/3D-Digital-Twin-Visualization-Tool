@@ -193,6 +193,8 @@ export class AddDrawer {
     const token = {};
     this.placing = { entry, token, yaw: 0 };
     this.dragEntry = dragging ? entry : null;
+    // While placing, the drawer shrinks to its hint so the floor behind it can be clicked.
+    if (!dragging) this.drawer.classList.add('is-placing');
     this.renderGrid();
     this.hint.textContent = `Placing ${entry.name}: click on the floor or on top of something. R turns it 90°, Shift-click keeps placing, Esc cancels.`;
     if (!dragging) {
@@ -234,6 +236,7 @@ export class AddDrawer {
     this.ghost = null;
     this.placing = null;
     this.dragEntry = null;
+    this.drawer.classList.remove('is-placing');
     if (wasPicking) this.picker.setHandler(null);
     this.hint.textContent = 'Click an item, then click on the floor to place it (R turns it, Esc cancels, Shift keeps placing). You can also drag it onto the floor.';
     if (this.isOpen) this.renderGrid();

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { cloneScene, dependentsOf, emptyScene, newId, ROTATION_ORDER, uniqueName } from './SceneDocument.js';
 import { disposeInstance } from './ModelTemplates.js';
-import { getComponent } from './catalog/index.js';
+import { getComponent, resolveParams } from './catalog/index.js';
 
 const D2R = Math.PI / 180;
 const HISTORY_LIMIT = 100;
@@ -193,7 +193,13 @@ export class SceneEditor {
       }
       if (!runtime) {
         runtime = this.createRuntime(item, signature);
-        loads.push(runtime.loading.then(() => this.applyItem(runtime, this.item(item.id), { applyPoses: true })));
+        loads.push(runtime.loading.then(() => {
+          this.applyItem(runtime, this.item(item.id), { applyPoses: true });
+          this.applyLinks();
+          // A rebuilt selected item (new parameters) keeps its gizmo and outline.
+          if (runtime.id === this.selectedId) this.updateGizmo();
+        }));
+        if (runtime.id === this.selectedId) this.updateGizmo();
       }
       this.applyItem(runtime, item, { applyPoses });
     });
@@ -505,22 +511,4 @@ export class SceneEditor {
     if (rebuilt) this.reconcile({ applyPoses: false });
     return rebuilt;
   }
-}
-
-// A component's parameters with defaults filled in and numbers kept inside their limits.
-export function resolveParams(definition, params = {}) {
-  const resolved = {};
-  Object.entries(definition.params || {}).forEach(([key, spec]) => {
-    let value = params?.[key] ?? spec.default;
-    if (spec.type === 'number' || spec.type === undefined) {
-      value = Number(value);
-      if (!Number.isFinite(value)) value = spec.default;
-      if (Number.isFinite(spec.min)) value = Math.max(spec.min, value);
-      if (Number.isFinite(spec.max)) value = Math.min(spec.max, value);
-    }
-    if (spec.type === 'select' && !spec.options.some((option) => option.value === value)) value = spec.default;
-    if (spec.type === 'boolean') value = Boolean(value);
-    resolved[key] = value;
-  });
-  return resolved;
 }

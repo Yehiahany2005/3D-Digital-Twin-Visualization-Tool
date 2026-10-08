@@ -1928,3 +1928,21 @@ body[data-mode="scene"] .reach-bar { top: 3.65rem; }
 .add-card strong { overflow: hidden; font-size: 0.7rem; text-overflow: ellipsis; white-space: nowrap; }
 .add-card small { overflow: hidden; color: var(--subtle); font-size: 0.6rem; text-overflow: ellipsis; white-space: nowrap; }
 .add-hint { margin: 0; color: var(--subtle); font-size: 0.64rem; }
+
+.editor-check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.editor-check input { accent-color: var(--accent); }
+
+/* While placing, only the hint (with how to cancel) stays, so the floor can be clicked. */
+.add-drawer.is-placing { grid-template-rows: auto; max-height: none; }
+.add-drawer.is-placing .add-drawer-head,
+.add-drawer.is-placing .add-grid { display: none; }
+.add-drawer.is-placing .add-hint { color: #dff8fb; font-size: 0.7rem; }
+#viewport:has(.add-drawer.is-placing) .viewport-status { bottom: 3.6rem; }

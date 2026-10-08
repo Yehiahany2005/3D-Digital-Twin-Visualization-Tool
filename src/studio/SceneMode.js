@@ -7,11 +7,12 @@ import { emptyScene, newId } from './SceneDocument.js';
 import { deleteScene, lastSceneId, listScenes, loadScene, rememberLastScene, saveScene } from './SceneStore.js';
 import { buildBundle, downloadBlob, readBundle } from './SceneBundle.js';
 import { currentRigDefinition, ModelTemplates } from './ModelTemplates.js';
-import { resolveParams, SceneEditor } from './SceneEditor.js';
-import { CATALOG, getComponent } from './catalog/index.js';
+import { SceneEditor } from './SceneEditor.js';
+import { CATALOG, getComponent, resolveParams } from './catalog/index.js';
 import { ExplorerPanel } from './ui/ExplorerPanel.js';
 import { PropertiesPanel } from './ui/PropertiesPanel.js';
 import { AddDrawer } from './ui/AddDrawer.js';
+import { ThumbnailRenderer } from './thumbnails.js';
 
 const SAVE_DELAY_MS = 600;
 const POSE_CHECK_MS = 3000;
@@ -40,6 +41,7 @@ export class SceneMode {
     this.opened = false;
 
     this.templates = new ModelTemplates({ onStatus });
+    this.thumbnails = new ThumbnailRenderer(renderer);
     this.editor = new SceneEditor({
       scene,
       camera: cameraManager.camera,
@@ -64,7 +66,7 @@ export class SceneMode {
       onEditInMachine: (item) => this.editInMachine(item),
       onRelink: (item) => this.relink(item),
       onAdd: () => this.drawer.setOpen(true),
-      extraSections: [],
+      extraSections: [(item, runtime, panel) => this.paramsSection(item, runtime, panel)],
     });
     this.drawer = new AddDrawer({
       drawer: ui.drawer,
@@ -78,6 +80,7 @@ export class SceneMode {
       preview: (entry) => this.preview(entry),
       place: (entry, placement) => this.place(entry, placement),
       onImport: (file) => this.importFile(file),
+      onOpenChange: (open) => open && this.loadThumbnails(),
     });
 
     this.editor.onChange((type, detail) => {
@@ -118,7 +121,7 @@ export class SceneMode {
       key: `builtin:${config.id}`,
       name: config.name,
       subtitle: config.type,
-      category: 'Robots & machines',
+      category: 'Robots & models',
       icon: config.rig ? 'Bot' : 'Box',
       source: { kind: 'builtin', id: config.id },
     }));
@@ -136,10 +139,20 @@ export class SceneMode {
       subtitle: component.description,
       category: component.category,
       icon: component.icon,
-      thumbnail: this.thumbnails?.get(component.id),
+      thumbnail: this.thumbnails.get(component.id),
       source: { kind: 'catalog', id: component.id },
     }));
     return [...components, ...models, ...imports];
+  }
+
+  // Pictures for the drawer, drawn one at a time; the grid updates as each one is ready.
+  loadThumbnails() {
+    CATALOG.forEach((component) => {
+      if (this.thumbnails.get(component.id) !== undefined) return;
+      this.thumbnails.request(component.id, async () => component.build(resolveParams(component, {}))).then(() => {
+        if (this.drawer.isOpen) this.drawer.renderGrid();
+      });
+    });
   }
 
   // What follows the pointer while placing: the real component (cheap), or for models a box of
@@ -248,6 +261,57 @@ export class SceneMode {
       });
     });
     input.click();
+  }
+
+  // Properties of a catalog component (length, speed…). Changing one rebuilds the component.
+  paramsSection(item, runtime, panel) {
+    if (item.source.kind !== 'catalog') return null;
+    const definition = getComponent(item.source.id);
+    const specs = Object.entries(definition?.params || {});
+    if (!specs.length) return null;
+    const node = document.createElement('section');
+    node.className = 'editor-section';
+    const title = document.createElement('span');
+    title.className = 'editor-section-title';
+    title.textContent = 'Settings';
+    node.append(title);
+    const grid = document.createElement('div');
+    grid.className = 'placement-fields';
+    const current = () => resolveParams(definition, this.editor.item(item.id)?.params);
+    const write = (key, value) => {
+      const params = { ...(this.editor.item(item.id).params || {}), [key]: value };
+      this.editor.updateItem(item.id, { params }, `Change ${definition.params[key].label.toLowerCase()} of ${this.editor.item(item.id).name}`);
+    };
+    specs.forEach(([key, spec]) => {
+      if (spec.type === 'number') {
+        grid.append(panel.field({ label: spec.label, unit: spec.unit, step: spec.step, read: () => current()[key], write: (value) => write(key, value) }));
+        return;
+      }
+      const wrapper = document.createElement('label');
+      wrapper.className = spec.type === 'boolean' ? 'editor-check' : 'editor-field';
+      if (spec.type === 'boolean') {
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        const show = () => { input.checked = Boolean(current()[key]); };
+        input.addEventListener('change', () => write(key, input.checked));
+        show();
+        panel.fields.push(show);
+        wrapper.append(input, ` ${spec.label}`);
+        node.append(wrapper);
+      } else {
+        const select = document.createElement('select');
+        spec.options.forEach((option) => select.append(new Option(option.label, option.value)));
+        const show = () => { if (document.activeElement !== select) select.value = current()[key]; };
+        select.addEventListener('change', () => write(key, select.value));
+        show();
+        panel.fields.push(show);
+        wrapper.append(Object.assign(document.createElement('span'), { textContent: spec.label }), select);
+        grid.append(wrapper);
+      }
+    });
+    node.insertBefore(grid, node.children[1] || null);
+    if (runtime?.kind === 'loading') node.append(Object.assign(document.createElement('p'), { className: 'editor-hint', textContent: 'Updating…' }));
+    return node;
   }
 
   iconFor(item, runtime) {
