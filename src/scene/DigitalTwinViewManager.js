@@ -142,8 +142,9 @@ export class DigitalTwinViewManager {
     this.startTransition(this.isDigitalTwin);
   }
 
-  replaceRobot(robot) {
-    if (this.robot === robot) return;
+  // force: capture again even if it is the same object (a scene whose items changed).
+  replaceRobot(robot, { force = false } = {}) {
+    if (this.robot === robot && !force) return;
     if (this.transition) this.finishTransition(this.isDigitalTwin);
 
     this.materialSlots.forEach((slot) => {

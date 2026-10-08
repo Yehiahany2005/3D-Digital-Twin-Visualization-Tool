@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ModelLoader } from '../loaders/ModelLoader.js';
+import { downloadModel } from '../loaders/download.js';
 import wrappingUrl from '../assets/Wrapping.STEP?url';
 
 /** Names from the Wrapping.STEP assembly (SolidWorks Assem1). */
@@ -24,9 +25,7 @@ function computeBox(objects) {
 async function loadWrappingContent(onStatus) {
   if (cachedContent) return cachedContent.clone(true);
   onStatus?.('Loading wrapping station…');
-  const response = await fetch(wrappingUrl);
-  if (!response.ok) throw new Error(`Could not download wrapping station (HTTP ${response.status}).`);
-  const buffer = await response.arrayBuffer();
+  const buffer = await downloadModel(wrappingUrl, 'the wrapping station');
   const parsed = await loader.parse(buffer, 'Wrapping.STEP', { onStatus });
   parsed.scene.traverse((object) => {
     if (!object.isMesh) return;

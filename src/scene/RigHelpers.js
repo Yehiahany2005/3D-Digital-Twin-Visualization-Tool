@@ -32,7 +32,7 @@ export class ViewportPicker {
     domElement.addEventListener('pointerup', (event) => {
       const down = this.down;
       this.down = null;
-      if (!down || !this.handler || !this.targets.length) return;
+      if (!down || !this.handler) return;
       if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > CLICK_TOLERANCE_PX) return;
       this.handler(this.pick(event), event);
     });
@@ -54,19 +54,41 @@ export class ViewportPicker {
   }
 
   // handler(hit | null, event) is called for each click; pass null to stop picking.
-  // target: an object or a list of objects to hit. options:
+  // target: an object, a list of objects, or a function returning them (asked at each pick).
+  // options:
   //   owner     – who is picking; another owner taking over calls the previous onRelease
   //   onRelease – called when someone else takes the picker
   //   hover     – hover(hit | null, event) on pointer moves
   //   filter    – filter(hit) → false to look past a hit (e.g. the arm that is moving)
+  //   cursor    – CSS cursor while picking (default: crosshair)
   setHandler(handler, target, options = {}) {
+    // Stopping hands the picker back to the default handler, if there is one. The owner stopped
+    // by itself, so it is not told it was released.
+    const stopping = !handler;
+    if (stopping && this.fallback && this.options.owner !== this.fallback.options.owner) {
+      ({ handler, target, options } = this.fallback);
+    }
     const previous = this.options;
-    const changingOwner = previous.owner && previous.owner !== options.owner;
+    const changingOwner = !stopping && previous.owner && previous.owner !== options.owner;
     this.handler = handler;
-    this.targets = handler ? [target].flat().filter(Boolean) : [];
+    this.targets = handler ? target : [];
     this.options = handler ? options : {};
-    this.domElement.style.cursor = handler ? 'crosshair' : '';
+    this.domElement.style.cursor = handler ? (options.cursor || 'crosshair') : '';
     if (changingOwner && handler) previous.onRelease?.();
+  }
+
+  // The handler that picks whenever nobody else does (e.g. selecting items in a scene). Pass null
+  // to remove it.
+  setDefault(handler, target, options = {}) {
+    const wasDefault = this.fallback && this.options.owner === this.fallback.options.owner;
+    this.fallback = handler ? { handler, target, options } : null;
+    if (handler && (!this.handler || wasDefault)) this.setHandler(handler, target, options);
+    else if (!handler && wasDefault) this.setHandler(null);
+  }
+
+  resolveTargets() {
+    const targets = typeof this.targets === 'function' ? this.targets() : this.targets;
+    return [targets].flat().filter(Boolean);
   }
 
   get owner() {
@@ -80,7 +102,9 @@ export class ViewportPicker {
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(pointer, this.camera);
-    const hits = this.raycaster.intersectObjects(this.targets, true);
+    const targets = this.resolveTargets();
+    if (!targets.length) return null;
+    const hits = this.raycaster.intersectObjects(targets, true);
     const { filter } = this.options;
     return hits.find((hit) => hit.object.isMesh && hit.object.visible && hit.faceIndex !== undefined
       && (!filter || filter(hit))) || null;

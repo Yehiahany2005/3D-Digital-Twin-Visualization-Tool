@@ -31,6 +31,10 @@
           </div>
           <input type="file" data-asset-import hidden />
         </div>
+        <div class="scene-title" data-scene-title hidden>
+          <i data-lucide="layout-grid" aria-hidden="true"></i>
+          <span class="asset-switcher-text"><strong data-scene-title-name>Scene</strong><small data-scene-title-meta></small></span>
+        </div>
         <div class="header-meta">
           <div class="view-mode" aria-live="polite">
             <span>View Mode</span>
@@ -42,6 +46,11 @@
 
       <section class="workspace" aria-label="Digital twin workspace">
         <aside class="sidebar" aria-label="Asset controls and information">
+          <div class="mode-tabs" role="tablist" aria-label="Mode">
+            <button type="button" role="tab" data-mode-tab="machine" aria-selected="true" title="One model at a time: joints, animations, Reach"><i data-lucide="cpu" aria-hidden="true"></i>Machine</button>
+            <button type="button" role="tab" data-mode-tab="scene" aria-selected="false" title="Several models and parts together, like a studio editor"><i data-lucide="layout-grid" aria-hidden="true"></i>Scene</button>
+          </div>
+          <div class="mode-pane" data-mode-pane="machine">
           <details class="sidebar-card station-card" data-station-card hidden>
             <summary><span class="card-title"><i data-lucide="move-3d" aria-hidden="true"></i>Station Scene</span><span class="summary-chevron" aria-hidden="true"></span></summary>
             <div class="card-content">
@@ -253,6 +262,37 @@
 
           <p class="asset-message" data-asset-message hidden>No embedded animations detected.</p>
 
+          </div>
+
+          <div class="mode-pane" data-mode-pane="scene" hidden>
+            <details class="sidebar-card scene-file-card" data-scene-file-card open>
+              <summary><span class="card-title"><i data-lucide="layout-grid" aria-hidden="true"></i>Scene</span><span class="summary-chevron" aria-hidden="true"></span></summary>
+              <div class="card-content scene-file-content">
+                <label class="editor-field">Name<input type="text" data-scene-name autocomplete="off" /></label>
+                <label class="editor-field">Open<select data-scene-list aria-label="Saved scenes"></select></label>
+                <div class="button-row">
+                  <button type="button" data-scene-new>New</button>
+                  <button type="button" data-scene-open-file title="Open a .dtscene file (scene plus the models it uses)">Open file</button>
+                  <button type="button" data-scene-export title="Save this scene and the imported models it uses as one .dtscene file, to keep or send">Export</button>
+                  <button type="button" data-scene-delete title="Delete this scene from this browser">Delete</button>
+                </div>
+                <input type="file" accept=".dtscene,.zip,.json" data-scene-file-input hidden />
+                <p class="editor-hint" data-scene-save-state>Changes are saved in this browser as you go.</p>
+              </div>
+            </details>
+
+            <details class="sidebar-card scene-explorer-card" open>
+              <summary><span class="card-title"><i data-lucide="list-tree" aria-hidden="true"></i>Explorer</span><span class="editor-count" data-explorer-count></span><span class="summary-chevron" aria-hidden="true"></span></summary>
+              <div class="card-content">
+                <ul class="explorer-list" data-explorer-list role="tree" aria-label="Items in the scene"></ul>
+              </div>
+            </details>
+
+            <details class="sidebar-card scene-properties-card" data-properties-card open>
+              <summary><span class="card-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Properties</span><span class="summary-chevron" aria-hidden="true"></span></summary>
+              <div class="card-content" data-properties></div>
+            </details>
+          </div>
         </aside>
 
         <section id="viewport" aria-label="3D viewport">
@@ -302,6 +342,42 @@
             </div>
             <span class="reach-status" data-reach-status role="status"></span>
             <button type="button" class="reach-action" data-reach-action hidden></button>
+          </div>
+
+          <div class="scene-toolbar" data-scene-toolbar hidden>
+            <button type="button" class="scene-add-button" data-scene-add aria-expanded="false" title="Add models and parts (A)"><i data-lucide="plus" aria-hidden="true"></i>Add</button>
+            <div class="scene-tools" role="group" aria-label="Tool">
+              <button type="button" data-scene-tool="select" title="Select (Q)"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i></button>
+              <button type="button" data-scene-tool="move" title="Move (W)"><i data-lucide="move" aria-hidden="true"></i></button>
+              <button type="button" data-scene-tool="rotate" title="Turn (E)"><i data-lucide="rotate-cw" aria-hidden="true"></i></button>
+            </div>
+            <label class="scene-snap" title="Moves snap to this step; turns snap to 15°">Snap
+              <select data-scene-snap>
+                <option value="0">Off</option>
+                <option value="0.01">1 cm</option>
+                <option value="0.05">5 cm</option>
+                <option value="0.1" selected>10 cm</option>
+                <option value="0.25">25 cm</option>
+                <option value="0.5">50 cm</option>
+                <option value="1">1 m</option>
+              </select>
+            </label>
+            <div class="scene-history" role="group" aria-label="History">
+              <button type="button" data-scene-undo title="Undo (Ctrl+Z)"><i data-lucide="undo-2" aria-hidden="true"></i></button>
+              <button type="button" data-scene-redo title="Redo (Ctrl+Shift+Z)"><i data-lucide="redo-2" aria-hidden="true"></i></button>
+            </div>
+          </div>
+
+          <div class="add-drawer" data-add-drawer hidden>
+            <div class="add-drawer-head">
+              <input type="search" data-add-search placeholder="Search models and parts…" aria-label="Search models and parts" autocomplete="off" />
+              <div class="add-categories" data-add-categories role="group" aria-label="Category"></div>
+              <button type="button" class="add-import" data-add-import title="Import a 3D / CAD file into this scene"><i data-lucide="upload" aria-hidden="true"></i>Import file</button>
+              <button type="button" class="add-close" data-add-close aria-label="Close">✕</button>
+            </div>
+            <div class="add-grid" data-add-grid></div>
+            <p class="add-hint" data-add-hint>Click an item, then click on the floor to place it (R turns it, Esc cancels, Shift keeps placing). You can also drag it onto the floor.</p>
+            <input type="file" data-add-import-input hidden />
           </div>
         </section>
       </section>

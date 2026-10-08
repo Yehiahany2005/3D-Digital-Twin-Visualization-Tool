@@ -31,9 +31,15 @@ function fitLight(light, scale) {
   light.shadow.normalBias = base.normalBias * scale;
 }
 
-export function fitEnvironment({ model, scene, floor, grid, lightGroups }) {
-  const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
-  const scale = Math.max(size.x, size.y, size.z, 0.01) / REFERENCE_SIZE;
+// span: the size to fit, in metres, when it shouldn't be measured from `model` (a scene sizes
+// to its whole layout, with a sensible minimum).
+export function fitEnvironment({ model, span, scene, floor, grid, lightGroups }) {
+  let extent = span;
+  if (!Number.isFinite(extent)) {
+    const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+    extent = Math.max(size.x, size.y, size.z);
+  }
+  const scale = Math.max(extent, 0.01) / REFERENCE_SIZE;
 
   floor.scale.setScalar(scale);
   floor.position.y = -0.001 * scale;

@@ -2,17 +2,17 @@ import * as THREE from 'three';
 import { AnimationController } from './AnimationController.js';
 import { getAssetConfig } from '../assets/AssetRegistry.js';
 import { ModelLoader, UNIT_SCALES } from '../loaders/ModelLoader.js';
+import { downloadModel } from '../loaders/download.js';
 
 const UP_AXIS_ROTATIONS = {
   y: new THREE.Euler(0, 0, 0),
   z: new THREE.Euler(-Math.PI / 2, 0, 0),
 };
 
-async function readSource(config) {
+// The bytes of a model: from the imported file, or downloaded for built-in models.
+export async function readModelSource(config) {
   if (config.file) return { buffer: await config.file.arrayBuffer(), fileName: config.file.name };
-  const response = await fetch(config.model);
-  if (!response.ok) throw new Error(`Could not download ${config.model} (HTTP ${response.status}).`);
-  return { buffer: await response.arrayBuffer(), fileName: config.model };
+  return { buffer: await downloadModel(config.model, config.name), fileName: config.model };
 }
 
 export class AssetManager {
@@ -51,7 +51,7 @@ export class AssetManager {
 
   async load(config) {
     this.onStatus?.(`Reading ${config.name}…`);
-    const { buffer, fileName } = await readSource(config);
+    const { buffer, fileName } = await readModelSource(config);
     const parsed = await this.loader.parse(buffer, fileName, { onStatus: this.onStatus });
     this.onStatus?.('Preparing model…');
 
@@ -89,26 +89,8 @@ export class AssetManager {
     return asset;
   }
 
-  // Applies unit scale and up axis, then rests the model on the floor (y = 0) centred on the origin.
   applyPlacement(asset) {
-    const { model: root, orientation } = asset;
-    const saved = { position: root.position.clone(), quaternion: root.quaternion.clone() };
-
-    root.position.set(0, 0, 0);
-    root.quaternion.identity();
-    root.scale.setScalar(UNIT_SCALES[asset.units] ?? 1);
-    orientation.rotation.copy(UP_AXIS_ROTATIONS[asset.upAxis] || UP_AXIS_ROTATIONS.y);
-    orientation.position.set(0, 0, 0);
-    root.updateMatrixWorld(true);
-
-    const bounds = new THREE.Box3().setFromObject(orientation);
-    const center = bounds.getCenter(new THREE.Vector3());
-    const offset = new THREE.Vector3(center.x, bounds.min.y, center.z).divide(root.scale);
-    orientation.position.sub(offset);
-
-    root.position.copy(saved.position);
-    root.quaternion.copy(saved.quaternion);
-    root.updateMatrixWorld(true);
+    placeOnFloor(asset);
   }
 
   replaceCurrent(asset) {
@@ -142,4 +124,31 @@ export class AssetManager {
     this.cache.forEach((asset) => asset.animationController.dispose());
     this.cache.clear();
   }
+}
+
+// Applies unit scale and up axis, then rests the model on the floor (y = 0) centred on the origin
+// of its root. Whatever placement the root itself has is kept.
+export function placeOnFloor(asset) {
+  const { model: root, orientation } = asset;
+  const saved = { position: root.position.clone(), quaternion: root.quaternion.clone() };
+
+  root.position.set(0, 0, 0);
+  root.quaternion.identity();
+  root.scale.setScalar(UNIT_SCALES[asset.units] ?? 1);
+  orientation.rotation.copy(UP_AXIS_ROTATIONS[asset.upAxis] || UP_AXIS_ROTATIONS.y);
+  orientation.position.set(0, 0, 0);
+  // Measured with the root at the origin of its parent's frame (a scene item may sit anywhere).
+  const parent = root.parent;
+  if (parent) parent.remove(root);
+  root.updateMatrixWorld(true);
+
+  const bounds = new THREE.Box3().setFromObject(orientation);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const offset = new THREE.Vector3(center.x, bounds.min.y, center.z).divide(root.scale);
+  orientation.position.sub(offset);
+
+  if (parent) parent.add(root);
+  root.position.copy(saved.position);
+  root.quaternion.copy(saved.quaternion);
+  root.updateMatrixWorld(true);
 }
