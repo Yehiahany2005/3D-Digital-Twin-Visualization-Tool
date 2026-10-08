@@ -1,5 +1,7 @@
 # Lubricant Production Line: Stations 1–3 and the Factory Scene
 
+
+
 This document summarizes the work that turned the single robot station into a three-station lubricant line plus a unified Factory scene. It covers what was built, how it works, where the code lives, and how it was verified.
 
 **Product flow:** raw materials → filling → capping → case packing → palletizing → wrapping → finished pallet.
