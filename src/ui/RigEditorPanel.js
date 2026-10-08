@@ -8,8 +8,15 @@ const REVOLUTE_DEFAULTS = { min: -180, max: 180, speed: 60 };
 // A new slide travels a quarter of the model's size, one way from where the part sits in the
 // file (Reverse flips the way), and takes about two seconds end to end.
 const SLIDE_TRAVEL_FRACTION = 0.25;
-// A "Two points" direction within 3° of one of the model's axes snaps onto it exactly.
-const SNAP_ANGLE_COS = Math.cos(THREE.MathUtils.degToRad(3));
+// A "Two points" line snaps onto one of the model's axes (Shift turns this off) when it is
+// within 8° of it in 3D, or when it looks within 7° of it on screen.
+const LINE_SNAP_COS = Math.cos(THREE.MathUtils.degToRad(8));
+const SCREEN_SNAP_COS = Math.cos(THREE.MathUtils.degToRad(7));
+// A "Two points" click this close to a corner of the clicked surface lands exactly on the corner.
+const CORNER_SNAP_PX = 14;
+const AXIS_NAMES = { x: 'X', y: 'Y', z: 'Z' };
+const LINE_SECOND_HINT = 'First point set. Move the pointer the way the part slides and click again: anywhere on screen works. Esc starts again.';
+const LINE_FIRST_HINT = 'Click a point on the part or its rail (corners snap), then click again the way it slides. Click "Two points" again to cancel.';
 // A flat face whose long side is less than this times its short side has no clear direction.
 const CLEAR_ELONGATION = 1.3;
 const TYPE_LABELS = { revolute: 'rotates', prismatic: 'slides', aim: 'follows (rotate)', stretch: 'follows (slide)' };
@@ -55,13 +62,14 @@ function isOriginalDescendant(path, ancestorPath) {
 }
 
 export class RigEditorPanel {
-  constructor({ card, picker, outline, highlight, gizmo, surfacePreview }) {
+  constructor({ card, picker, outline, highlight, gizmo, surfacePreview, linePreview }) {
     this.card = card;
     this.picker = picker;
     this.outline = outline;
     this.highlight = highlight;
     this.gizmo = gizmo;
     this.surfacePreview = surfacePreview;
+    this.linePreview = linePreview;
     this.asset = null;
     this.meshes = [];
     this.selection = [];
@@ -97,6 +105,10 @@ export class RigEditorPanel {
     this.query('[data-clear-selection]').addEventListener('click', () => this.setSelection([]));
     this.query('[data-pick-surface]').addEventListener('click', () => this.setPickMode('surface'));
     this.query('[data-pick-line]').addEventListener('click', () => this.setPickMode(this.pickMode === 'line' ? 'parts' : 'line'));
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || event.target.closest?.('input, select, textarea')) return;
+      if (this.cancelLineStep()) event.preventDefault();
+    });
     this.query('[data-pick-target]').addEventListener('click', () => this.setPickMode('target'));
     this.query('[data-part-centre]').addEventListener('click', () => {
       if (!this.selection.length) return this.showMessage('Select the moving parts first.', true);
@@ -176,29 +188,37 @@ export class RigEditorPanel {
   setPickMode(mode) {
     this.pickMode = this.asset ? mode : null;
     this.lineStart = null;
+    this.lineFrame = null;
     this.updatePickButtons();
     if (this.pickMode) {
+      // Finding an axis or drawing a line previews what a click would pick, as the pointer moves.
+      const hovers = {
+        surface: (hit) => this.previewSurface(hit),
+        line: (hit, event) => this.previewLine(hit, event),
+      };
       this.picker.setHandler((hit, event) => this.handlePick(hit, event), this.asset.model, {
         owner: 'joint-setup',
-        // Finding an axis previews what a click would pick, as the pointer moves.
-        hover: this.pickMode === 'surface' ? (hit) => this.previewSurface(hit) : null,
+        hover: hovers[this.pickMode] || null,
         // Another tool (e.g. Reach) took over the viewport clicks.
         onRelease: () => {
           this.pickMode = null;
+          this.lineStart = null;
           this.updatePickButtons();
           this.surfacePreview.hide();
+          this.linePreview.hide();
         },
       });
     } else if (this.picker.owner === 'joint-setup') {
       this.picker.setHandler(null);
     }
     if (this.pickMode !== 'surface') this.surfacePreview.hide();
+    this.linePreview.hide();
     if (this.pickMode === 'surface') {
       this.showMessage(this.isSlide
         ? 'Move over the model: the highlighted surface and the dashed line show the way the part would slide. Rods, rails and long flat faces work best. Click to use it.'
         : 'Move over the model: the highlighted surface and the dashed line show the axis the joint would turn around. Round shafts and holes work best. Click to use it.');
     }
-    if (this.pickMode === 'line') this.showMessage('Click the first point, then a second point further along the way the part slides. Click "Two points" again to cancel.');
+    if (this.pickMode === 'line') this.showMessage(LINE_FIRST_HINT);
     if (this.pickMode === 'target') this.showMessage('Click the point this joint should follow.');
   }
 
@@ -212,6 +232,12 @@ export class RigEditorPanel {
   }
 
   handlePick(hit, event) {
+    // The second of two points may be off the model: the line just needs a direction.
+    if (this.pickMode === 'line') {
+      this.asset.player.stop();
+      this.pickLinePoint(hit, event);
+      return;
+    }
     if (!hit) {
       if (this.pickMode === 'parts' && !event.shiftKey) this.setSelection([]);
       return;
@@ -219,7 +245,6 @@ export class RigEditorPanel {
     this.asset.player.stop();
     if (this.pickMode === 'parts') this.pickPart(hit.object, event.shiftKey);
     else if (this.pickMode === 'surface') this.pickSurface(hit);
-    else if (this.pickMode === 'line') this.pickLinePoint(hit);
     else if (this.pickMode === 'target') this.pickTarget(hit);
   }
 
@@ -489,25 +514,178 @@ export class RigEditorPanel {
     return result.dot(this.draft.axis) < 0 ? result.negate() : result;
   }
 
-  // "Two points": the part slides from the first click toward the second.
-  pickLinePoint(hit) {
-    const mesh = hit.object;
-    const local = mesh.worldToLocal(hit.point.clone());
-    const point = this.rig.withRestPose(() => this.rig.content.worldToLocal(mesh.localToWorld(local)));
+  // ---- "Two points" ---------------------------------------------------------------
+
+  // Where a "Two points" click or hover lands, in world space and in the model frame at rest.
+  // On the model it snaps to a corner of the surface when the pointer is near one. After the
+  // first point, the pointer may also be off the model: the point then lies on a plane through
+  // the first point facing the camera, so the line can be drawn anywhere on screen.
+  linePoint(hit, event) {
+    let world = null;
+    if (hit) {
+      world = this.snapToCorner(hit, event) || hit.point.clone();
+    } else if (this.lineStart && event) {
+      const facing = this.picker.camera.getWorldDirection(new THREE.Vector3());
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(facing, this.lineStart.world);
+      world = this.pointerRay(event).intersectPlane(plane, new THREE.Vector3());
+    }
+    if (!world) return null;
+    // Both points are read in the first point's part, at its rest pose (where axes are defined).
+    const frame = this.lineFrame || this.lineFrameFor(hit.object);
+    return { world, model: world.clone().applyMatrix4(frame.toModel), frame };
+  }
+
+  // Matrices between the model frame at rest and the world as the part sits now.
+  lineFrameFor(mesh) {
+    const restModelToMesh = this.rig.withRestPose(() => mesh.matrixWorld.clone().invert().multiply(this.rig.content.matrixWorld));
+    const toWorld = mesh.matrixWorld.clone().multiply(restModelToMesh);
+    return { toWorld, toModel: toWorld.clone().invert() };
+  }
+
+  pointerRay(event) {
+    const rect = this.picker.domElement.getBoundingClientRect();
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    ), this.picker.camera);
+    return raycaster.ray;
+  }
+
+  // A world point on screen, in pixels (same coordinates as pointer events).
+  toScreen(world) {
+    const rect = this.picker.domElement.getBoundingClientRect();
+    const ndc = world.clone().project(this.picker.camera);
+    return new THREE.Vector2(rect.left + ((ndc.x + 1) / 2) * rect.width, rect.top + ((1 - ndc.y) / 2) * rect.height);
+  }
+
+  // The corner of the clicked triangle nearest the pointer, if it is within a few pixels.
+  snapToCorner(hit, event) {
+    if (!hit.face || !event) return null;
+    const position = hit.object.geometry.attributes.position;
+    let best = null;
+    let bestDistance = CORNER_SNAP_PX;
+    [hit.face.a, hit.face.b, hit.face.c].forEach((vertex) => {
+      const corner = new THREE.Vector3().fromBufferAttribute(position, vertex).applyMatrix4(hit.object.matrixWorld);
+      const screen = this.toScreen(corner);
+      const distance = Math.hypot(screen.x - event.clientX, screen.y - event.clientY);
+      if (distance < bestDistance) {
+        best = corner;
+        bestDistance = distance;
+      }
+    });
+    return best;
+  }
+
+  // The line from the first point to `point`: its direction in the model frame, the end to
+  // draw and its length. Unless Shift is held it snaps onto one of the model's axes when it
+  // is close to it in 3D, or looks close to it on screen (the way CAD tools infer axes), so
+  // dragging "straight up" on screen gives the model's vertical even with the camera tilted.
+  lineTo(point, event) {
+    const start = this.lineStart;
+    const raw = point.model.clone().sub(start.model);
+    const lengthMm = point.world.distanceTo(start.world) * 1000;
+    const free = { direction: raw.lengthSq() > 0 ? raw.clone().normalize() : null, lengthMm, end: point.world, axis: null };
+    if (!free.direction || event?.shiftKey) return free;
+
+    const startScreen = this.toScreen(start.world);
+    const pointer = event ? new THREE.Vector2(event.clientX, event.clientY).sub(startScreen) : null;
+    let best = null;
+    Object.keys(WORLD_AXES).forEach((key) => {
+      const worldDirection = WORLD_AXES[key].clone().transformDirection(start.frame.toWorld);
+      let score = Math.abs(WORLD_AXES[key].dot(free.direction));
+      let sign = Math.sign(WORLD_AXES[key].dot(free.direction)) || 1;
+      if (score < LINE_SNAP_COS) score = 0;
+      // On screen: skip axes pointing almost straight at the camera (they look like a dot).
+      const axisScreen = this.toScreen(start.world.clone().addScaledVector(worldDirection, this.modelSize * 0.2)).sub(startScreen);
+      if (pointer && pointer.length() > 10 && axisScreen.length() > 15) {
+        const cos = pointer.dot(axisScreen) / (pointer.length() * axisScreen.length());
+        if (Math.abs(cos) >= SCREEN_SNAP_COS && Math.abs(cos) > score) {
+          score = Math.abs(cos);
+          sign = Math.sign(cos);
+        }
+      }
+      if (score > 0 && (!best || score > best.score)) best = { key, score, sign, worldDirection };
+    });
+    if (!best) return free;
+
+    // How far along the axis the pointer reaches: the point on the axis line nearest the
+    // pointer's ray (or the clicked point's projection when there is no pointer).
+    const direction = WORLD_AXES[best.key].clone().multiplyScalar(best.sign);
+    const worldDirection = best.worldDirection.clone().multiplyScalar(best.sign);
+    let along = point.world.clone().sub(start.world).dot(worldDirection);
+    if (event) {
+      const ray = this.pointerRay(event);
+      const between = start.world.clone().sub(ray.origin);
+      const b = worldDirection.dot(ray.direction);
+      const denominator = 1 - b * b;
+      if (denominator > 1e-6) along = (b * ray.direction.dot(between) - worldDirection.dot(between)) / denominator;
+    }
+    return {
+      direction: along < 0 ? direction.negate() : direction,
+      lengthMm: Math.abs(along) * 1000,
+      end: start.world.clone().addScaledVector(worldDirection, along),
+      axis: AXIS_NAMES[best.key],
+    };
+  }
+
+  previewLine(hit, event) {
+    if (this.pickMode !== 'line') return;
+    const point = (hit || this.lineStart) ? this.linePoint(hit, event) : null;
+    if (!point) {
+      this.linePreview.hide();
+      return;
+    }
     if (!this.lineStart) {
+      this.linePreview.show({ start: null, end: point.world, size: this.modelSize });
+      return;
+    }
+    const line = this.lineTo(point, event);
+    this.linePreview.show({ start: this.lineStart.world, end: line.end, snapped: Boolean(line.axis), size: this.modelSize });
+    if (line.lengthMm < this.minLineMm) return this.showMessage(LINE_SECOND_HINT);
+    this.showMessage(line.axis
+      ? `${Math.round(line.lengthMm)} mm, lined up with the model's ${line.axis} axis. Click to use it (hold Shift to stop it lining up).`
+      : `${Math.round(line.lengthMm)} mm. Click to use this direction. Esc starts again.`);
+  }
+
+  // "Two points": the part slides from the first click toward the second.
+  pickLinePoint(hit, event) {
+    if (!this.lineStart) {
+      if (!hit) return this.showMessage('Click on the model to place the first point.', true);
+      const point = this.linePoint(hit, event);
+      this.lineFrame = point.frame;
       this.lineStart = point;
-      return this.showMessage('First point set. Now click a second point further along the way the part slides.');
+      return this.showMessage(LINE_SECOND_HINT);
     }
-    const direction = point.clone().sub(this.lineStart);
-    if (direction.length() < this.modelSize * 1e-3 / this.rig.metresPerUnit) {
-      return this.showMessage('The two points are too close together. Click a second point further away.', true);
+    const point = this.linePoint(hit, event);
+    if (!point) return null;
+    const line = this.lineTo(point, event);
+    if (!line.direction || line.lengthMm < this.minLineMm) {
+      return this.showMessage('Move further from the first point before clicking, so the direction is clear.', true);
     }
-    direction.normalize();
-    // Lines that are almost along one of the model's axes snap onto it exactly.
-    const snapped = Object.values(WORLD_AXES).find((axis) => Math.abs(axis.dot(direction)) >= SNAP_ANGLE_COS);
-    this.draft.axis = snapped ? snapped.clone().multiplyScalar(Math.sign(snapped.dot(direction))) : direction;
+    this.draft.axis = line.direction;
     this.setPickMode('parts');
-    return this.showMessage(`Direction set from the two points${snapped ? ' (lined up with the model\'s axis)' : ''}. The arrow shows the way it slides; use Reverse to flip it.`);
+    return this.showMessage(`Direction set${line.axis ? ` along the model's ${line.axis} axis` : ''}. The arrow shows the way it slides; use Reverse to flip it.`);
+  }
+
+  // Shorter lines than this give too uncertain a direction.
+  get minLineMm() {
+    return this.modelSize * 1000 * 0.01;
+  }
+
+  // Esc while drawing: drop the first point, or leave "Two points" if there is none.
+  cancelLineStep() {
+    if (this.pickMode !== 'line') return false;
+    if (this.lineStart) {
+      this.lineStart = null;
+      this.lineFrame = null;
+      this.linePreview.hide();
+      this.showMessage(LINE_FIRST_HINT);
+    } else {
+      this.setPickMode('parts');
+      this.showMessage(null);
+    }
+    return true;
   }
 
   pickTarget(hit) {

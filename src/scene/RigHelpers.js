@@ -4,6 +4,7 @@ const CLICK_TOLERANCE_PX = 5;
 const ACCENT = 0x69c7d3;
 const TARGET_COLOR = 0xf2b84b;
 const TRAVEL_COLOR = 0xb48cff;
+const LINE_SNAP_COLOR = 0x4cd38a;
 // Parts of the joint a follower (cylinder, rod) follows.
 export const LINK_COLOR = 0xb38cff;
 const DIM_COLOR = 0x111518;
@@ -376,6 +377,62 @@ export class ReachMarker {
       this.arrow.position.copy(point).addScaledVector(direction, -length);
       this.arrow.setDirection(direction.clone().normalize());
       this.arrow.setLength(length, length * 0.3, length * 0.15);
+    }
+    this.group.visible = true;
+  }
+
+  hide() {
+    this.group.visible = false;
+  }
+}
+
+// Live preview for "Two points": a dot under the pointer, then a line with an arrowhead from
+// the first point to the pointer. Green when the line is lined up with one of the model's axes.
+export class LinePickPreview {
+  constructor(scene) {
+    this.group = new THREE.Group();
+    this.group.name = 'LinePickPreview';
+    this.group.visible = false;
+    this.material = overlayMaterial(ACCENT);
+    this.start = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), this.material);
+    this.end = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), this.material);
+    this.head = new THREE.Mesh(new THREE.ConeGeometry(1, 2.6, 16), this.material);
+    this.line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: ACCENT, depthTest: false, transparent: true }),
+    );
+    this.line.frustumCulled = false;
+    this.group.add(this.start, this.end, this.head, this.line);
+    this.group.traverse((object) => { object.renderOrder = 1002; });
+    scene.add(this.group);
+  }
+
+  // World space. start null: only the dot under the pointer. size: the model's largest dimension.
+  show({ start, end, snapped = false, size }) {
+    const color = snapped ? LINE_SNAP_COLOR : ACCENT;
+    this.material.color.setHex(color);
+    this.line.material.color.setHex(color);
+    const radius = size * 0.013;
+    this.end.position.copy(end);
+    this.end.scale.setScalar(radius);
+    const drawLine = Boolean(start) && start.distanceTo(end) > radius;
+    this.start.visible = Boolean(start);
+    this.line.visible = drawLine;
+    this.head.visible = drawLine;
+    this.end.visible = !drawLine;
+    if (start) {
+      this.start.position.copy(start);
+      this.start.scale.setScalar(radius);
+    }
+    if (drawLine) {
+      const direction = end.clone().sub(start).normalize();
+      const positions = this.line.geometry.attributes.position;
+      positions.setXYZ(0, start.x, start.y, start.z);
+      positions.setXYZ(1, end.x, end.y, end.z);
+      positions.needsUpdate = true;
+      this.head.position.copy(end).addScaledVector(direction, -radius * 2);
+      this.head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+      this.head.scale.setScalar(radius * 1.5);
     }
     this.group.visible = true;
   }

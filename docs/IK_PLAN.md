@@ -404,6 +404,7 @@ Not detected in v1 (documented limits): self-collision (arm hitting itself), col
 | 2026-10-08 | "Pick from surface" renamed **Find axis on model**, with a live hover preview of the detected axis. "Find a joint" search removed. |
 | 2026-10-08 | **Find axis on model** renamed **Select from Surface**. "Reached, but part of the machine dips below the floor." now shows in orange instead of green. |
 | 2026-10-08 | **Slide (linear) joints reworked in Joint Setup.** Select from Surface follows a flat face's long side (not the line out of the face); new **Two points** direction pick; travel defaults to 0 … +¼ of the model's size, with speed and jog step scaled to it; pivot controls hidden for slides; travel drawn on the model as a purple bar with end stops; range and speed kept per movement kind when switching type. Piston rods: direction recomputed when "Mounted on" or the parts change, direction controls hidden, warning when not mounted on a barrel that follows the same point. |
+| 2026-10-08 | **Two points made easier:** live preview (dot under the pointer, then a line with an arrowhead and its length); clicks snap to the corners of the surface; the second point can be anywhere on screen; the line lines up with the model's axes CAD-style (8° in 3D or 7° on screen, turns green; Shift turns it off); Esc drops the first point. |
 
 ---
 
