@@ -15,6 +15,9 @@ import * as THREE from 'three';
 //                                        point carried by another joint (cylinders, linkages),
 //     stretch: { joint, target, anchor } optional: slide automatically to keep target at the same distance,
 //   }],
+//   tools: [{ id, name, joint, frame, point, direction }]   tool points for Reach (inverse kinematics):
+//                                        a point and pointing direction carried by `joint`, given in the
+//                                        model frame or the joint's first part's frame, at the rest pose,
 //   poses: [{ id, name, values: { jointId: value } }],
 //   sequences: [{
 //     id, name, loop,
@@ -67,7 +70,7 @@ export function partReference(object) {
 }
 
 export function emptyRigDefinition() {
-  return { version: 1, joints: [], poses: [], sequences: [] };
+  return { version: 1, joints: [], tools: [], poses: [], sequences: [] };
 }
 
 export class Rig {
@@ -137,6 +140,10 @@ export class Rig {
     return this.definition.poses;
   }
 
+  get tools() {
+    return this.definition.tools;
+  }
+
   get sequences() {
     return this.definition.sequences;
   }
@@ -157,11 +164,18 @@ export class Rig {
       version: 1,
       ...definition,
       joints: definition.joints || [],
+      tools: definition.tools || [],
       poses: definition.poses || [],
       sequences: definition.sequences || [],
     };
     this.build();
     this.setValues(previousValues);
+    this.emitChange();
+  }
+
+  // Replaces the tool points. Unlike setDefinition, the joints are not rebuilt.
+  setTools(tools) {
+    this.definition = { ...this.definition, tools };
     this.emitChange();
   }
 
@@ -235,6 +249,9 @@ export class Rig {
     });
 
     this.joints.filter((joint) => joint.driven).forEach((joint) => this.prepareDriven(joint));
+    (this.definition.tools || []).forEach((tool) => {
+      if (!this.jointsById.has(tool.joint)) this.warnings.push(`Tool point "${tool.name || tool.id}": joint "${tool.joint}" does not exist.`);
+    });
     this.drivenOrder = sortByDependencies(
       this.joints.filter((joint) => joint.driven).map((joint) => joint.definition),
       (definition) => [definition.parent, definition.aim?.joint, definition.stretch?.joint].filter(Boolean),

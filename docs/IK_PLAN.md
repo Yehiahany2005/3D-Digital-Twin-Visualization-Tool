@@ -1,6 +1,6 @@
 # Click-to-Reach (Inverse Kinematics): Research & Build Plan
 
-> **Status:** researched and prototyped. **Not built yet.**
+> **Status:** **built** (phases 1–3, 2026-10-08). Phase 4 items remain open; see §12 and §15.
 > **Purpose:** the single reference for building "click a point → the machine's tool moves there".
 > It records the concepts, what exists in the code, what the model files contain, every
 > experiment with its numbers, the bugs those experiments caught, the generic design, how
@@ -397,8 +397,27 @@ Not detected in v1 (documented limits): self-collision (arm hitting itself), col
 | 2026-10-08 | Asset selection moved to a **searchable header picker**; Mira robot removed |
 | 2026-10-08 | Report *why* a reach fails (joint limit / orientation / out of reach / floor) |
 | 2026-10-08 | Solver: damped least squares, geometric Jacobian, finite differences when followers are in the chain |
+| 2026-10-08 | Clicking an unreachable spot does **not** move the machine; the status explains why (and offers "Use any angle" when only the direction is the problem) |
+| 2026-10-08 | v1 uses position + pointing direction (5-D); the twist about the tool axis is left free |
 
 ---
+
+## 15. As built (2026-10-08)
+
+| Piece | Where | Notes |
+|---|---|---|
+| Solver | `src/motion/InverseKinematics.js` | `chainFor`, `resolveTool`, `solveReach`, `diagnoseReach`. Pure module, no UI. |
+| Tests | `src/motion/InverseKinematics.test.js` (`npm test`, Vitest) | 18 tests on generic machines built from boxes: six-axis arm, gantry in millimetres, SCARA, 7-joint arm, linkage with a follower, pan-tilt. Includes diagnosis cases (out of reach, below floor, joint range, orientation, big swing). |
+| Tool points in the rig | `src/motion/Rig.js` (`tools`, `setTools`) | Saved with the rig (browser + `.rig.json`). Missing joints raise a rig warning. Deleting a joint removes its tool points. |
+| Joint Setup "Tool point" section | `src/ui/RigEditorPanel.js`, `index.html` | Set tool point (click a moving part; direction = out of the clicked face), Move, Flip, rename, remove; pink markers on the model while Joint Setup is open. |
+| Reach toolbar | `src/ui/ReachPanel.js`, `index.html` | Top-left over the 3D view: Reach toggle, tool selector (only with 2+ tools), modes Point down (default) / Any angle / Face surface, status line with action button. Hover: quick solve every frame, full diagnosis after the pointer rests 180 ms. Click: full diagnosis, then `MotionPlayer.moveTo`. Esc stops. Hidden in Station. |
+| Viewport picking | `src/scene/RigHelpers.js` `ViewportPicker` | Owner-based: Reach and Joint Setup take turns; several targets (model + floor); hover callback; hit filter (Reach ignores the moving machine itself). |
+| Markers | `RigHelpers.js` `ToolMarkers`, `ReachMarker` | Tool point (pink dot + arrow); target (green = reachable, amber = reachable with a warning, red = not). |
+| Built-in ABB rig | `src/rigs/abbIrb6760.js` | Ships with a tool point at the flange (data only; the solver has no vendor code). |
+
+Verified in the browser: ABB flange lands on the clicked spot pointing down; far spots report "out of reach by N m"; a STEP import without joints offers "Set up joints"; a STEP with a single slide reports its limited reach; "Set tool point" by clicking works; Station hides the bar.
+
+Still open (phase 4): undo last reach, straight-line moves (MoveL), "reach point" sequence step, optional vendor pre-fill for imports, switching the Station to this solver, singularity hints.
 
 ## Appendix A: Prototype solver (reference; not used by the app)
 

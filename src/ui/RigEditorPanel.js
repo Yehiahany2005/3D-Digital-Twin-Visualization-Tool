@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { analyzeSurface } from '../motion/surfaceAnalysis.js';
 import { emptyRigDefinition, originalParent, partReference } from '../motion/Rig.js';
+import { resolveTool } from '../motion/InverseKinematics.js';
 import { downloadRig, forgetSavedRig, readRigFile, saveRig } from '../motion/RigStore.js';
 
 const TYPE_DEFAULTS = {
@@ -52,13 +53,17 @@ function isOriginalDescendant(path, ancestorPath) {
 }
 
 export class RigEditorPanel {
-  constructor({ card, picker, outline, highlight, gizmo }) {
+  constructor({ card, picker, outline, highlight, gizmo, toolMarkers }) {
     this.card = card;
     this.picker = picker;
     this.outline = outline;
     this.highlight = highlight;
     this.gizmo = gizmo;
+    this.toolMarkers = toolMarkers;
     this.asset = null;
+    // Which tool a "tool" pick sets: an existing tool's id, or null for a new one.
+    this.toolTarget = null;
+    this.resolvedTools = null;
     this.meshes = [];
     this.selection = [];
     // The groups containing the last clicked part, smallest first (see groupLevels).
@@ -80,10 +85,12 @@ export class RigEditorPanel {
   bindEvents() {
     this.card.addEventListener('toggle', () => {
       if (this.card.open) {
-        this.setPickMode('parts');
+        // Keep a pick already asked for (e.g. "Set tool point" from Reach); otherwise pick parts.
+        this.setPickMode(this.pickMode || 'parts');
       } else {
         this.setPickMode(null);
         this.gizmo.hide();
+        this.toolMarkers.hide();
       }
       this.refreshSelection();
     });
@@ -92,6 +99,7 @@ export class RigEditorPanel {
     this.query('[data-clear-selection]').addEventListener('click', () => this.setSelection([]));
     this.query('[data-pick-surface]').addEventListener('click', () => this.setPickMode('surface'));
     this.query('[data-pick-target]').addEventListener('click', () => this.setPickMode('target'));
+    this.query('[data-add-tool]').addEventListener('click', () => this.startToolPick(null));
     this.query('[data-part-centre]').addEventListener('click', () => {
       if (!this.selection.length) return this.showMessage('Select the moving parts first.', true);
       this.draft.pivot = this.selectionCentre();
@@ -139,7 +147,12 @@ export class RigEditorPanel {
   setAsset(asset) {
     this.unsubscribe?.();
     this.asset = asset;
-    this.unsubscribe = asset.rig.onChange(() => this.renderJointList());
+    this.unsubscribe = asset.rig.onChange(() => {
+      this.resolvedTools = null;
+      this.renderJointList();
+      this.renderTools();
+    });
+    this.resolvedTools = null;
     this.modelSize = (() => {
       const size = new THREE.Box3().setFromObject(asset.model).getSize(new THREE.Vector3());
       return Math.max(size.x, size.y, size.z, 0.01);
@@ -155,7 +168,7 @@ export class RigEditorPanel {
     this.resetForm();
     this.refreshSelection();
     this.renderJointList();
-    this.picker.target = asset.model;
+    this.renderTools();
     if (this.pickMode) this.setPickMode(this.pickMode);
   }
 
@@ -168,14 +181,34 @@ export class RigEditorPanel {
 
   setPickMode(mode) {
     this.pickMode = this.asset ? mode : null;
+    this.updatePickButtons();
+    if (this.pickMode) {
+      this.picker.setHandler((hit, event) => this.handlePick(hit, event), this.asset.model, {
+        owner: 'joint-setup',
+        // Another tool (e.g. Reach) took over the viewport clicks.
+        onRelease: () => {
+          this.pickMode = null;
+          this.updatePickButtons();
+        },
+      });
+    } else if (this.picker.owner === 'joint-setup') {
+      this.picker.setHandler(null);
+    }
+    if (this.pickMode === 'surface') this.showMessage('Click a round shaft, hole or flat face on the model.');
+    if (this.pickMode === 'target') this.showMessage('Click the point this joint should follow.');
+    if (this.pickMode === 'tool') this.showMessage('Click the tool tip on the model, e.g. the face of a gripper or suction cup.');
+  }
+
+  updatePickButtons() {
     const selectButton = this.query('[data-select-parts]');
     selectButton.setAttribute('aria-pressed', String(this.pickMode === 'parts'));
     selectButton.classList.toggle('is-active', this.pickMode === 'parts');
     this.query('[data-pick-surface]').classList.toggle('is-active', this.pickMode === 'surface');
     this.query('[data-pick-target]').classList.toggle('is-active', this.pickMode === 'target');
-    this.picker.setHandler(this.pickMode ? (hit, event) => this.handlePick(hit, event) : null, this.asset?.model);
-    if (this.pickMode === 'surface') this.showMessage('Click a round shaft, hole or flat face on the model.');
-    if (this.pickMode === 'target') this.showMessage('Click the point this joint should follow.');
+    this.query('[data-add-tool]').classList.toggle('is-active', this.pickMode === 'tool' && this.toolTarget === null);
+    this.card.querySelectorAll('[data-repick-tool]').forEach((button) => {
+      button.classList.toggle('is-active', this.pickMode === 'tool' && this.toolTarget === button.dataset.repickTool);
+    });
   }
 
   handlePick(hit, event) {
@@ -187,6 +220,7 @@ export class RigEditorPanel {
     if (this.pickMode === 'parts') this.pickPart(hit.object, event.shiftKey);
     else if (this.pickMode === 'surface') this.pickSurface(hit);
     else if (this.pickMode === 'target') this.pickTarget(hit);
+    else if (this.pickMode === 'tool') this.pickTool(hit);
   }
 
   // Meshes are often unnamed children of a named part, so climb to the first named object,
@@ -713,6 +747,7 @@ export class RigEditorPanel {
     const definition = structuredClone(this.rig.definition);
     const removed = definition.joints.find((joint) => joint.id === id);
     definition.joints = definition.joints.filter((joint) => joint.id !== id);
+    definition.tools = (definition.tools || []).filter((tool) => tool.joint !== id);
     definition.joints.forEach((joint) => {
       if (joint.parent === id) joint.parent = removed.parent || null;
       ['aim', 'stretch'].forEach((key) => {
@@ -919,12 +954,138 @@ export class RigEditorPanel {
     this.query('[data-save-state]').textContent = 'Reset. Changes are saved in this browser once you edit the rig.';
   }
 
+  // ---- Tool points (Reach) ------------------------------------------------------------
+
+  startToolPick(toolId) {
+    if (!this.rig?.joints.length) {
+      this.showMessage('Set up the joints first: a tool point sits on a part that moves.', true);
+      return;
+    }
+    this.toolTarget = toolId;
+    this.setPickMode('tool');
+  }
+
+  // The joint that carries a clicked mesh (its own joint, or the one it rides on).
+  ownerJoint(mesh) {
+    let current = mesh;
+    while (current && current !== this.rig.content && current.userData.rigJointId === undefined) current = current.parent;
+    return current?.userData.rigJointId;
+  }
+
+  pickTool(hit) {
+    const mesh = hit.object;
+    const owner = this.ownerJoint(mesh);
+    if (!owner) return this.showMessage("That part doesn't move. Click the tool on a part that has a joint, e.g. the gripper.", true);
+    const joint = this.rig.jointsById.get(owner);
+    const local = mesh.worldToLocal(hit.point.clone());
+    // Points and directions are stored in the model frame at the rest pose, like joint pivots.
+    const { point, direction } = this.rig.withRestPose(() => {
+      const toModel = this.rig.content.matrixWorld.clone().invert();
+      const worldNormal = (hit.face?.normal || new THREE.Vector3(0, -1, 0)).clone().transformDirection(mesh.matrixWorld);
+      return {
+        point: mesh.localToWorld(local).applyMatrix4(toModel),
+        direction: worldNormal.transformDirection(toModel),
+      };
+    });
+    const vector = (value) => value.toArray().map((component) => round(component, 6));
+    const tools = structuredClone(this.rig.tools);
+    const existing = tools.find((tool) => tool.id === this.toolTarget);
+    if (existing) {
+      Object.assign(existing, { joint: owner, frame: 'model', point: vector(point), direction: vector(direction) });
+    } else {
+      const ids = new Set(tools.map((tool) => tool.id));
+      let number = tools.length + 1;
+      while (ids.has(`tool_${number}`)) number += 1;
+      tools.push({ id: `tool_${number}`, name: tools.length ? `Tool ${number}` : 'Tool', joint: owner, frame: 'model', point: vector(point), direction: vector(direction) });
+    }
+    this.toolTarget = null;
+    this.rig.setTools(tools);
+    this.persist();
+    this.setPickMode('parts');
+    return this.showMessage(`Tool point set on "${joint.name}". The pink arrow shows the way it points; use Flip if it points into the part. Try it with Reach above the 3D view.`);
+  }
+
+  editTool(id, change) {
+    const tools = structuredClone(this.rig.tools);
+    const tool = tools.find((item) => item.id === id);
+    if (!tool) return;
+    change(tool);
+    this.rig.setTools(tools);
+    this.persist();
+  }
+
+  flipTool(id) {
+    this.editTool(id, (tool) => { tool.direction = (tool.direction || [0, -1, 0]).map((value) => -value); });
+  }
+
+  removeTool(id) {
+    const tool = this.rig.tools.find((item) => item.id === id);
+    if (!tool || !window.confirm(`Remove tool point "${tool.name}"?`)) return;
+    this.rig.setTools(this.rig.tools.filter((item) => item.id !== id));
+    this.persist();
+    this.showMessage(`Tool point "${tool.name}" removed.`);
+  }
+
+  renderTools() {
+    const list = this.query('[data-tool-list]');
+    list.replaceChildren();
+    const tools = this.rig?.tools || [];
+    this.query('[data-tool-count]').textContent = tools.length > 1 ? String(tools.length) : '';
+    this.query('[data-add-tool]').textContent = tools.length ? 'Add another tool point' : 'Set tool point';
+    tools.forEach((tool) => {
+      const joint = this.rig.jointsById.get(tool.joint);
+      const item = document.createElement('li');
+      item.className = 'tool-item';
+      const name = document.createElement('input');
+      name.type = 'text';
+      name.value = tool.name || tool.id;
+      name.setAttribute('aria-label', 'Tool point name');
+      name.addEventListener('change', () => {
+        const value = name.value.trim();
+        if (value) this.editTool(tool.id, (item) => { item.name = value; });
+        else name.value = tool.name || tool.id;
+      });
+      const where = document.createElement('small');
+      where.textContent = joint ? `on ${joint.name}` : 'joint missing';
+      where.classList.toggle('is-error', !joint);
+      const text = document.createElement('div');
+      text.className = 'tool-item-text';
+      text.append(name, where);
+      const button = (label, title, onClick) => {
+        const element = document.createElement('button');
+        element.type = 'button';
+        element.textContent = label;
+        element.title = title;
+        element.setAttribute('aria-label', `${title}: ${tool.name || tool.id}`);
+        element.addEventListener('click', onClick);
+        return element;
+      };
+      const repick = button('Move', 'Pick the tool point again', () => this.startToolPick(tool.id));
+      repick.dataset.repickTool = tool.id;
+      item.append(
+        text,
+        repick,
+        button('Flip', 'Reverse the way the tool points', () => this.flipTool(tool.id)),
+        button('✕', 'Remove tool point', () => this.removeTool(tool.id)),
+      );
+      list.appendChild(item);
+    });
+    this.updatePickButtons();
+  }
+
+  // Tool points in world space, for the markers.
+  toolMarkersData() {
+    if (!this.resolvedTools) this.resolvedTools = (this.rig?.tools || []).map((tool) => resolveTool(this.rig, tool)).filter(Boolean);
+    return this.resolvedTools.map((resolved) => ({ position: resolved.position(), direction: resolved.direction() }));
+  }
+
   // ---- Per-frame -------------------------------------------------------------------
 
   update() {
     if (!this.card.open || !this.rig) return;
     this.outline.update();
     this.highlight.update();
+    this.toolMarkers.show(this.toolMarkersData(), this.modelSize);
     const { draft } = this;
     if (!this.selection.length && !draft.editingId) {
       this.gizmo.hide();

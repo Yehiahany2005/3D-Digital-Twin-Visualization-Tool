@@ -176,6 +176,18 @@
               </section>
 
               <section class="editor-section">
+                <div class="editor-section-head">
+                  <span class="editor-section-title">Tool point</span>
+                  <span class="editor-count" data-tool-count></span>
+                </div>
+                <small class="editor-hint" data-tool-hint>The point that goes where you click in Reach mode, e.g. a gripper tip. It points out of the surface you click.</small>
+                <ul class="tool-list" data-tool-list></ul>
+                <div class="button-row">
+                  <button type="button" data-add-tool>Set tool point</button>
+                </div>
+              </section>
+
+              <section class="editor-section">
                 <div class="editor-section-head"><span class="editor-section-title">Rig file</span></div>
                 <div class="button-row">
                   <button type="button" data-export-rig>Export</button>
@@ -256,6 +268,17 @@
         <section id="viewport" aria-label="3D viewport">
           <div class="viewport-label"></div>
           <p class="viewport-status" data-asset-status role="status" hidden></p>
+          <div class="reach-bar" data-reach-bar>
+            <button type="button" class="reach-toggle" data-reach-toggle aria-pressed="false" title="Click a spot in the 3D view and the tool moves there. Esc to stop."><i data-lucide="crosshair" aria-hidden="true"></i>Reach</button>
+            <select class="reach-tool" data-reach-tool aria-label="Tool point" hidden></select>
+            <div class="reach-modes" role="group" aria-label="Tool direction">
+              <button type="button" data-reach-mode="down">Point down</button>
+              <button type="button" data-reach-mode="any">Any angle</button>
+              <button type="button" data-reach-mode="surface">Face surface</button>
+            </div>
+            <span class="reach-status" data-reach-status role="status"></span>
+            <button type="button" class="reach-action" data-reach-action hidden></button>
+          </div>
         </section>
       </section>
 
