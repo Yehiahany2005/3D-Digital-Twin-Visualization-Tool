@@ -1,6 +1,6 @@
 # Multi-Model Scenes: Research & Build Plan
 
-> **Status:** research done, nothing built yet (2026-10-08).
+> **Status:** **built** (2a–2f, 2026-10-08), including physics, conveyor flow and free rotation. See §9.
 > **Purpose:** the reference for step 2 of the road to a generic Station: place several models
 > (a robot, a conveyor, a wrapper, people…) in one scene, edit the layout, and save it. It
 > records what the code assumes today, how other tools solve the same problem, the design, the
@@ -376,3 +376,58 @@ Then step 3 adds the sequence steps ("reach anchor", "grip" = attach in place to
 - Siemens / mounting: [Process Simulate mount tool overview](https://nps-tissueconverting.valmet.com/process-simulate-mount-tool.html), [Tecnomatix blog](https://blogs.sw.siemens.com/tecnomatix/process-simulate-how-to-create-more-attachments-for-robot-cables/), [3DEXPERIENCE forum](https://3dswym.3dexperience.3ds.com/question/3dexperience-edu-students/problem-with-mounting-tool-to-robot-arm_B6kRLCghScC1-c1eBi2D1Q)
 - three.js: [TransformControls](https://threejs.org/docs/pages/TransformControls.html), [SkeletonUtils](https://threejs.org/docs/pages/module-SkeletonUtils.html), [ObjectLoader](https://threejs.org/docs/pages/ObjectLoader.html), forum threads on [cloning](https://discourse.threejs.org/t/are-there-disadvantages-to-always-using-skeletonutils-clone/24995), [heavy scenes](https://discourse.threejs.org/t/question-about-how-to-optimize-performance-for-a-mesh-non-repeating-heavy-scene/88117), [BIM models](https://discourse.threejs.org/t/optimized-rendering-of-large-3d-bim-models/93709), [many GLBs](https://discourse.threejs.org/t/how-to-load-a-lot-of-gtb-models-without-performance-drops/54692)
 - Storage: [MDN storage quotas](https://developer.mozilla.org/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria), [web.dev persistent storage](https://web.dev/articles/persistent-storage)
+
+---
+
+## 9. As built (2026-10-08)
+
+### 9.1 Decisions taken with the owner
+
+| Question (§8) | Decision |
+|---|---|
+| Single model | **Two distinct modes.** Machine mode is the original one-model app (unchanged, Station included). Scene mode is the studio. Tabs at the top of the sidebar switch. Importing in Scene mode adds the file to the scene; importing in Machine mode opens it on its own. |
+| Where the panels go | Left sidebar, Machine/Scene tabs. |
+| Rotation | Turning only by default; **free 3D rotation** behind the toolbar's "3D" toggle (T). |
+| People | The simple procedural worker **and** an animated person: KayKit "Rogue" (Kay Lousberg, **CC0**, `src/assets/people/`), props removed. |
+| Sharing | **`.dtscene` bundle** (one zip: scene + imported model files + their rigs), because a scene that only refers to files is useless on a colleague's computer. Plain `.json` scenes open too. |
+| Physics / flow | Built (§9.4), not deferred. |
+
+### 9.2 Where things are
+
+| Piece | File |
+|---|---|
+| Scene document (versioned JSON, unknown fields kept), copy names, dependents | `src/studio/SceneDocument.js` (+ tests) |
+| Browser storage (scenes; shared DB with imports) | `src/studio/SceneStore.js`, `src/assets/db.js` |
+| `.dtscene` bundle | `src/studio/SceneBundle.js` (+ tests), uses `fflate` |
+| Templates & copies (clone per item, own rig/player/animations) | `src/studio/ModelTemplates.js` |
+| Editor: reconcile with the document, selection, gizmo, undo/redo, links, snapping | `src/studio/SceneEditor.js` |
+| Anchors, snapping maths, mounting alignment | `src/studio/Anchors.js` |
+| Mesh merging (performance) | `src/studio/mergeStatic.js` |
+| Simulation (Rapier) | `src/studio/Simulation.js` |
+| Mode controller (files, toolbar, keys, Reach binding, play) | `src/studio/SceneMode.js` |
+| UI: Explorer, Properties, Add drawer, icons, thumbnails | `src/studio/ui/*`, `src/studio/thumbnails.js` |
+| Catalog (12 parts) | `src/studio/catalog/*` |
+
+### 9.3 Keys (Scene mode)
+
+Q select · W move · E turn · T free rotation · R turn 90° (Shift: −90°) · arrows nudge by the snap · F frame · A Add drawer · Ctrl+D duplicate · Delete · Ctrl+Z / Ctrl+Shift+Z · Ctrl+Enter play/stop · Esc deselect / cancel placing · Alt while dragging: no snapping.
+
+### 9.4 Simulation
+
+Play runs Rapier physics (loaded on first Play, ~1.6 MB gzipped); Stop restores the document (positions, poses, items an end of line removed) and deletes boxes made while playing. Belts set the velocity of bodies standing on them; end stops are colliders; box sources spawn when there is room; ends of line remove what enters their volume. Models are not solid unless marked (their bounding box is used); mounted/attached items are kinematic and push boxes.
+
+### 9.5 Measured
+
+| Check | Result |
+|---|---|
+| Heavy scene (ABB 6760, depalletizer, 2× IRB1300, conveyor, source, pallet, wrapper, person) | 4,971 → **1,227** draw calls per frame after merging (−75%); IRB1300 913 parts drawn as 143 |
+| Mounting | gripper face on flange: 0.0000 m; IK with the gripper tip: 0.0000 m from target |
+| Conveyor snap | ends coincide (0.0000 m), facing (−1.000), turn copied |
+| Flow | boxes queue at an end stop one box length apart; hand over between snapped conveyors; removed at an end of line; Stop restores everything |
+
+### 9.6 Known limits / next
+
+- Robot sequences don't yet grip or release boxes (step 3: "reach anchor", "grip" = attach in place to the tool tip, "release", "repeat across a grid").
+- A model marked solid uses one box; robots should stay non-solid.
+- Very heavy imports still cost triangles (merging only cuts draw calls); simplification/LOD is future work.
+- Two copies of the same robot share its rig (by design); per-copy differences come from what is mounted.

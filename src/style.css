@@ -1967,3 +1967,4 @@ body[data-mode="scene"] .reach-bar { top: 3.65rem; }
 .scene-play-status { color: #9fe3bd; font-weight: 600; white-space: nowrap; }
 .scene-play-status[hidden] { display: none; }
 .scene-toolbar.is-playing { border-color: rgba(76, 211, 138, 0.55); }
+.scene-toolbar .scene-free-rotate { font-size: 0.66rem; }

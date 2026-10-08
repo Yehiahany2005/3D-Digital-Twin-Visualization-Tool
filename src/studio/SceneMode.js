@@ -471,7 +471,7 @@ export class SceneMode {
     this.ui.play.title = playing ? 'Stop: everything goes back to where it was' : 'Play: gravity, conveyors and box sources run. Stop puts everything back.';
     this.ui.playStatus.hidden = !playing;
     this.ui.toolbar.classList.toggle('is-playing', playing);
-    [this.ui.addButton, this.ui.undo, this.ui.redo, ...this.ui.toolButtons].forEach((button) => { button.disabled = playing; });
+    [this.ui.addButton, this.ui.undo, this.ui.redo, this.ui.freeRotate, ...this.ui.toolButtons].forEach((button) => { button.disabled = playing; });
     if (!playing) this.updateHistoryButtons();
   }
 
@@ -705,6 +705,7 @@ export class SceneMode {
     ui.undo.addEventListener('click', () => this.editor.undo());
     ui.redo.addEventListener('click', () => this.editor.redo());
     ui.play.addEventListener('click', () => this.togglePlay());
+    ui.freeRotate.addEventListener('click', () => this.setFreeRotation(!this.editor.freeRotation));
     this.setTool('move');
   }
 
@@ -715,6 +716,15 @@ export class SceneMode {
       button.classList.toggle('is-active', active);
       button.setAttribute('aria-pressed', String(active));
     });
+  }
+
+  // Turning on the floor (default) or tilting freely about all three axes.
+  setFreeRotation(free) {
+    this.editor.setFreeRotation(free);
+    this.ui.freeRotate.setAttribute('aria-pressed', String(free));
+    this.ui.freeRotate.classList.toggle('is-active', free);
+    if (free) this.setTool('rotate');
+    this.onStatus?.(free ? 'Free rotation: drag any of the three rings, or type Tilt X / Tilt Z in Properties.' : 'Turning only: items stay level and turn on the floor.');
   }
 
   updateHistoryButtons() {
@@ -751,6 +761,7 @@ export class SceneMode {
       else if (key === 'q') this.setTool('select');
       else if (key === 'w') this.setTool('move');
       else if (key === 'e') this.setTool('rotate');
+      else if (key === 't') this.setFreeRotation(!editor.freeRotation);
       else if (key === 'a') this.drawer.setOpen(!this.drawer.isOpen);
       else if (key === 'escape' && selected && !this.reachPanel.active) editor.select(null);
       else if (key === 'arrowleft' && selected) editor.nudge(-1, 0);
