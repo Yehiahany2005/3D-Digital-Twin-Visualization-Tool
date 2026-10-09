@@ -415,7 +415,7 @@ Q select · W move · E turn · T free rotation · R turn 90° (Shift: −90°) 
 
 ### 9.4 Simulation
 
-Play runs Rapier physics (loaded on first Play, ~1.6 MB gzipped); Stop restores the document (positions, poses, items an end of line removed) and deletes boxes made while playing. Belts set the velocity of bodies standing on them; end stops are colliders; box sources spawn when there is room; ends of line remove what enters their volume. Models are not solid unless marked (their bounding box is used); mounted/attached items are kinematic and push boxes.
+Play runs Rapier physics (loaded on first Play, ~1.6 MB gzipped); Stop restores the document (positions, poses, items an end of line removed) and deletes boxes made while playing. Belts set the velocity of bodies standing on them; end stops are colliders; box sources spawn when there is room; ends of line remove what enters their volume. Models are not solid unless marked; a solid model collides with its **actual shape** (one exact triangle-mesh collider per drawn part, so boxes pass through the gaps), and parts on joints or animations follow their part every step. Mounted/attached items are kinematic and push boxes.
 
 ### 9.5 Measured
 
@@ -429,7 +429,6 @@ Play runs Rapier physics (loaded on first Play, ~1.6 MB gzipped); Stop restores 
 ### 9.6 Known limits / next
 
 - Robot sequences don't yet grip or release boxes (step 3: "reach anchor", "grip" = attach in place to the tool tip, "release", "repeat across a grid").
-- A model marked solid uses one box; robots should stay non-solid.
 - Very heavy imports still cost triangles (merging only cuts draw calls); simplification/LOD is future work.
 - Two copies of the same robot share its rig (by design); per-copy differences come from what is mounted.
 
@@ -440,3 +439,34 @@ The station scenes (Factory, Stations 1–3) used to sit in the Machine tab's mo
 - The header shows a **scene menu** in the Scene tab (like the model menu in the Machine tab): *Built-in scenes* (made in code, run with Start/Reset/Speed) and *My scenes* (drag and drop), plus New scene / Open file.
 - `src/main.js` builds the shared 3D view, switches tabs and runs the frame loop. Each tab (`src/app/MachineTab.js`, `src/app/SceneTab.js`) has `enter()` / `exit()`, and `exit()` puts away everything the tab owns (Reach, viewport clicks, 3D content, overlays), so nothing of one tab shows in the other.
 - Station 3 and the factory get their own ABB copy (`ModelTemplates.createInstance(config, { rig })`), so they never move or re-rig the Machine tab's robot.
+
+### 9.8 Editor made simpler (2026-10-09)
+
+The editor showed everything at once (three stacked cards, a second toolbar for Reach, technical
+stats, jargon). It now shows what matters for the task at hand:
+
+- **Sidebar = two panels that each scroll**: *Objects* (scene name with Export / Delete, then the
+  list) and *Selected* (always in view). Eye and padlock appear on hover, or stay while switched on.
+- **Selected**: name and a row of quick actions (Frame, Duplicate, Hide, Lock, Delete) on top, then
+  folding groups in plain words: Position, Settings, Attach, Animation, Robot (play a sequence, edit
+  joints in the Machine tab), *Move joints by hand* (folded), *When playing* (folded). Fold choices
+  are kept while the page is open. Model size only shows when a model is heavy.
+- **Toolbar**: Add · Select / Move / Turn / Tilt (labelled; labels drop on narrow screens) · Snap ·
+  Undo / Redo · Play · **?** (mouse controls and every shortcut; also the ? key).
+- **Guidance**: an empty scene shows three first steps and "Add your first object"; a hint line
+  (bottom right) says what can be done now and why something can't move (locked, mounted, playing).
+- **Reach** in the editor shows only its switch and tool tip until it is turned on.
+
+### 9.9 Solid shapes and attaching (2026-10-09)
+
+- **Solid = the real shape.** A solid model used to be one box around the whole model, so boxes
+  stopped in mid-air beside a robot. Each drawn part is now an exact triangle-mesh collider
+  (skinned people use a box per body part), and moving parts carry their colliders with them.
+  `src/studio/Simulation.test.js` drops boxes under and onto a gantry and lifts its beam.
+- **Selection shows the shape too**: the selected object's parts are tinted (`SelectionHighlight`)
+  instead of a box drawn around it.
+- **Move along with**: *Pick it in the view* (click the object, or the exact robot part; the target
+  is tinted amber and named in the hint line while hovering), or choose from a list of objects only;
+  for a robot a second list picks the whole robot or one of its axes. Base movement joints are no
+  longer offered.
+

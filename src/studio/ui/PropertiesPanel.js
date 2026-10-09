@@ -15,24 +15,22 @@ function element(tag, className, text) {
   return node;
 }
 
-function section(title) {
-  const node = element('section', 'editor-section');
-  if (title) node.append(element('span', 'editor-section-title', title));
-  return node;
-}
+// Which groups are folded, remembered while the page is open: fold Joints once and it stays
+// folded for every robot selected after.
+const openGroups = new Map();
 
-// Properties of the selected item (like Roblox Studio's Properties window): name, where it is,
-// its settings, its joints and animations, and what can be done with it. Rebuilt when another
-// item is selected; when only values change, the fields are updated in place so typing isn't
-// interrupted.
+// The selected object (like Roblox Studio's Properties window), kept short: a header with its
+// name and quick actions, then folding groups (Position, Settings, Attach, Robot, Joints…)
+// in plain words. Rebuilt when another object is selected; when only values change, the fields
+// are updated in place so typing isn't interrupted.
 export class PropertiesPanel {
-  constructor({ container, editor, describeSource, onEditInMachine, onRelink, onAdd, extraSections = [] }) {
+  constructor({ container, editor, describeSource, iconFor, onEditInMachine, onRelink, extraSections = [] }) {
     this.container = container;
     this.editor = editor;
     this.describeSource = describeSource;
+    this.iconFor = iconFor;
     this.onEditInMachine = onEditInMachine;
     this.onRelink = onRelink;
-    this.onAdd = onAdd;
     this.extraSections = extraSections;
     this.fields = [];
     this.structure = null;
@@ -68,42 +66,46 @@ export class PropertiesPanel {
       return;
     }
     const runtime = this.editor.selectedRuntime;
-    const parts = [this.headerSection(item, runtime)];
+    const parts = [this.header(item, runtime)];
+    const rigged = runtime?.asset?.rig?.joints.length;
     if (this.editor.playing) {
       // While playing only what moves things is offered; the layout can't change.
-      const note = section();
-      note.append(element('p', 'editor-hint', 'The scene is playing. Stop it to move or change things; machines can still be jogged.'));
-      parts.push(note);
-      if (runtime?.asset?.animations?.length) parts.push(this.animationSection(item, runtime));
-      if (runtime?.asset?.rig?.joints.length) parts.push(this.jointsSection(item, runtime));
+      parts.push(element('p', 'prop-note', 'Playing: stop to move or change things. Robots can still be jogged.'));
+      if (runtime?.asset?.animations?.length) parts.push(this.animationGroup(item, runtime));
+      if (rigged) parts.push(this.robotGroup(item, runtime), this.jointsGroup(runtime));
       this.container.replaceChildren(...parts);
       return;
     }
-    if (runtime?.kind === 'missing') parts.push(this.missingSection(item));
-    parts.push(this.placementSection(item, runtime));
+    if (runtime?.kind === 'missing') parts.push(this.missingNote(item));
+    parts.push(this.positionGroup(item, runtime));
     this.extraSections.forEach((build) => {
       const extra = build(item, runtime, this);
       if (extra) parts.push(extra);
     });
-    if (runtime?.asset?.animations?.length) parts.push(this.animationSection(item, runtime));
-    if (runtime?.asset?.rig?.joints.length) parts.push(this.jointsSection(item, runtime));
-    parts.push(this.actionsSection(item, runtime));
+    if (runtime?.asset?.animations?.length) parts.push(this.animationGroup(item, runtime));
+    if (runtime?.kind === 'model') parts.push(this.robotGroup(item, runtime));
+    if (rigged) parts.push(this.jointsGroup(runtime));
     this.container.replaceChildren(...parts);
   }
 
   renderNothingSelected() {
     const count = this.editor.items.length;
-    const node = section();
-    node.append(element('p', 'editor-hint', count
-      ? `${count} item${count === 1 ? '' : 's'} in this scene. Click one in the 3D view or in the Explorer to see and change its properties.`
-      : 'Nothing here yet. Add a robot, a conveyor or one of your imported models to start building the scene.'));
-    const row = element('div', 'button-row');
-    const add = element('button', 'primary-button', 'Add models and parts');
-    add.type = 'button';
-    add.addEventListener('click', () => this.onAdd?.());
-    row.append(add);
-    node.append(row);
-    this.container.replaceChildren(node);
+    this.container.replaceChildren(element('p', 'prop-empty', count
+      ? 'Click an object in the view or in Objects to move it, change its settings or attach it to something.'
+      : 'Nothing to show yet: add an object first.'));
+  }
+
+  // A folding group. open: how it starts the first time; after that the user's choice is kept.
+  group(key, title, { open = true, note } = {}) {
+    const node = element('details', 'prop-group');
+    node.open = openGroups.has(key) ? openGroups.get(key) : open;
+    node.addEventListener('toggle', () => openGroups.set(key, node.open));
+    const summary = element('summary', 'prop-group-head');
+    summary.append(icon('ChevronRight', 13), element('span', null, title));
+    if (note) summary.append(element('small', null, note));
+    const body = element('div', 'prop-group-body');
+    node.append(summary, body);
+    return { node, body };
   }
 
   // A text/number field bound to a value of the selected item. read() → value; write(value) commits.
@@ -116,12 +118,18 @@ export class PropertiesPanel {
     if (step) input.step = String(step);
     input.disabled = Boolean(disabled);
     if (title) wrapper.title = title;
+    this.bindInput(input, { type, read, write });
+    wrapper.append(caption, input);
+    return wrapper;
+  }
+
+  bindInput(input, { type = 'number', read, write }) {
     const show = () => {
       if (document.activeElement !== input) input.value = String(read());
     };
     input.addEventListener('change', () => {
       const value = type === 'number' ? Number(input.value) : input.value.trim();
-      if (type === 'number' && !Number.isFinite(value)) {
+      if ((type === 'number' && !Number.isFinite(value)) || value === '') {
         show();
         return;
       }
@@ -136,55 +144,85 @@ export class PropertiesPanel {
     });
     show();
     this.fields.push(show);
-    wrapper.append(caption, input);
-    return wrapper;
   }
 
-  headerSection(item, runtime) {
-    const node = section();
-    node.append(this.field({
-      label: 'Name',
+  // Name, what it is, and the things done most often, as one row of buttons.
+  header(item, runtime) {
+    const node = element('div', 'prop-header');
+    const title = element('div', 'prop-title');
+    if (this.iconFor) title.append(icon(runtime?.kind === 'missing' ? 'AlertTriangle' : this.iconFor(item, runtime), 16));
+    const name = element('input', 'prop-name');
+    name.type = 'text';
+    name.setAttribute('aria-label', 'Name');
+    name.title = 'Click to rename';
+    this.bindInput(name, {
       type: 'text',
       read: () => this.editor.item(item.id)?.name ?? '',
-      write: (name) => name && this.editor.updateItem(item.id, { name }, `Rename to ${name}`),
-    }));
-    const source = element('p', 'editor-hint properties-source');
-    source.textContent = this.describeSource(item, runtime);
-    node.append(source);
-    if (runtime?.asset?.stats) {
-      const { meshes, triangles, drawn = meshes } = runtime.asset.stats;
-      // Many triangles still cost after merging; many parts only until merged.
-      const heavy = drawn > 300 || triangles > 1.5e6;
-      const stats = element('p', `editor-hint properties-stats${heavy ? ' is-heavy' : ''}`);
-      stats.textContent = `${meshes.toLocaleString()} parts${drawn < meshes ? `, drawn as ${drawn}` : ''} · ${(triangles / 1e6).toFixed(2)} M triangles${heavy ? ' · heavy: several of these may slow the view' : ''}`;
-      node.append(stats);
-    }
+      write: (value) => this.editor.updateItem(item.id, { name: value }, `Rename to ${value}`),
+    });
+    title.append(name);
+    node.append(title, element('p', 'prop-subtitle', this.describeSource(item, runtime)));
+
     if (item.mount || item.attach) {
       const parent = this.editor.item(parentOf(item));
-      node.append(element('p', 'editor-hint', `${item.mount ? 'Mounted on' : 'Follows'} "${parent?.name || '?'}": it moves with it.`));
+      node.append(element('p', 'prop-subtitle', `${item.mount ? 'Mounted on' : 'Moves with'} ${parent?.name || 'another object'}.`));
     }
+    // Size only matters when it may slow the view down.
+    const stats = runtime?.asset?.stats;
+    if (stats) {
+      const { meshes, triangles, drawn = meshes } = stats;
+      if (drawn > 300 || triangles > 1.5e6) {
+        const warning = element('p', 'prop-warning', `Heavy model (${(triangles / 1e6).toFixed(1)} M triangles): several copies may slow the view.`);
+        warning.title = `${meshes.toLocaleString()} parts, drawn as ${drawn}`;
+        node.append(warning);
+      }
+    }
+
+    const actions = element('div', 'prop-actions');
+    const action = (iconName, label, run, { pressed, danger } = {}) => {
+      const button = element('button', `icon-button${danger ? ' is-danger' : ''}`);
+      button.type = 'button';
+      button.title = label;
+      button.setAttribute('aria-label', label);
+      if (pressed !== undefined) {
+        button.setAttribute('aria-pressed', String(pressed));
+        button.classList.toggle('is-on', pressed);
+      }
+      button.append(icon(iconName, 15));
+      button.addEventListener('click', run);
+      actions.append(button);
+    };
+    const playing = this.editor.playing;
+    action('Focus', 'Frame: point the camera at it (F)', () => this.editor.emit('frame', item.id));
+    if (!playing) {
+      action('Copy', 'Duplicate (Ctrl+D)', () => this.editor.duplicate(item.id));
+      action(item.hidden ? 'EyeOff' : 'Eye', item.hidden ? 'Hidden: click to show' : 'Hide', () => {
+        this.editor.updateItem(item.id, { hidden: item.hidden ? undefined : true }, item.hidden ? `Show ${item.name}` : `Hide ${item.name}`);
+      }, { pressed: Boolean(item.hidden) });
+      action(item.locked ? 'Lock' : 'LockOpen', item.locked ? 'Locked: click to unlock' : 'Lock so it can\'t be moved by accident', () => {
+        this.editor.updateItem(item.id, { locked: item.locked ? undefined : true }, item.locked ? `Unlock ${item.name}` : `Lock ${item.name}`);
+      }, { pressed: Boolean(item.locked) });
+      action('Trash2', 'Delete, with anything mounted on it (Delete)', () => this.editor.removeItems([item.id]), { danger: true });
+    }
+    node.append(actions);
     return node;
   }
 
-  missingSection(item) {
-    const node = section();
-    const message = element('p', 'editor-message is-error');
-    message.textContent = this.editor.selectedRuntime?.error?.message || 'This model could not be loaded.';
-    node.append(message);
+  missingNote(item) {
+    const node = element('div', 'prop-missing');
+    node.append(element('p', 'editor-message is-error', this.editor.selectedRuntime?.error?.message || 'This model could not be loaded.'));
     if (item.source.kind === 'import') {
-      const row = element('div', 'button-row');
-      const relink = element('button', null, 'Locate file…');
+      const relink = element('button', 'primary-button', 'Locate file…');
       relink.type = 'button';
       relink.title = `Choose ${item.source.name || 'the model file'} on this computer`;
       relink.addEventListener('click', () => this.onRelink?.(item));
-      row.append(relink);
-      node.append(row);
+      node.append(relink);
     }
     return node;
   }
 
-  placementSection(item, runtime) {
-    const node = section('Placement');
+  positionGroup(item, runtime) {
+    const { node, body } = this.group('position', 'Position');
     const blocker = this.editor.moveBlocker(item);
     const linked = Boolean(item.mount || item.attach);
     const current = () => this.editor.item(item.id);
@@ -209,10 +247,10 @@ export class PropertiesPanel {
     };
     const grid = element('div', 'placement-fields');
     grid.append(
-      this.field({ label: 'X', unit: 'm', step: 0.05, read: read('position', 0, 3), write: write('position', 0, 'Move'), disabled: blocker }),
-      this.field({ label: 'Height', unit: 'm', step: 0.05, read: read('position', 1, 3), write: write('position', 1, 'Move'), disabled: blocker }),
-      this.field({ label: 'Z', unit: 'm', step: 0.05, read: read('position', 2, 3), write: write('position', 2, 'Move'), disabled: blocker }),
-      this.field({ label: 'Turn', unit: '°', step: 15, read: read('rotation', 1, 1), write: write('rotation', 1, 'Turn'), disabled: blocker }),
+      this.field({ label: 'X', unit: 'm', step: 0.05, read: read('position', 0, 3), write: write('position', 0, 'Move'), disabled: blocker, title: 'Left / right on the floor' }),
+      this.field({ label: 'Z', unit: 'm', step: 0.05, read: read('position', 2, 3), write: write('position', 2, 'Move'), disabled: blocker, title: 'Forward / back on the floor' }),
+      this.field({ label: 'Height', unit: 'm', step: 0.05, read: read('position', 1, 3), write: write('position', 1, 'Move'), disabled: blocker, title: 'Above the floor' }),
+      this.field({ label: 'Turn', unit: '°', step: 15, read: read('rotation', 1, 1), write: write('rotation', 1, 'Turn'), disabled: blocker, title: 'Turned on the floor' }),
     );
     if (this.editor.freeRotation || Math.abs(item.rotation[0]) > 0.01 || Math.abs(item.rotation[2]) > 0.01) {
       grid.append(
@@ -220,13 +258,13 @@ export class PropertiesPanel {
         this.field({ label: 'Tilt Z', unit: '°', step: 15, read: read('rotation', 2, 1), write: write('rotation', 2, 'Tilt'), disabled: blocker }),
       );
     }
-    node.append(grid);
-    if (blocker && !this.editor.playing) node.append(element('p', 'editor-hint', blocker));
+    body.append(grid);
+    if (blocker) body.append(element('p', 'editor-hint', blocker));
     return node;
   }
 
-  animationSection(item, runtime) {
-    const node = section('Animation');
+  animationGroup(item, runtime) {
+    const { node, body } = this.group('animation', 'Animation');
     const select = document.createElement('select');
     select.setAttribute('aria-label', 'Animation');
     select.append(new Option('None (still)', ''));
@@ -244,18 +282,16 @@ export class PropertiesPanel {
     this.fields.push(show);
     const wrapper = element('label', 'editor-field');
     wrapper.append(element('span', null, 'Plays on a loop'), select);
-    node.append(wrapper);
+    body.append(wrapper);
     return node;
   }
 
-  jointsSection(item, runtime) {
+  // Sequences to play, and the way to Joint Setup in the Machine tab.
+  robotGroup(item, runtime) {
     const { rig, player } = runtime.asset;
-    const node = section('Joints');
-    const list = element('div', 'joints-list properties-joints');
-    this.jointControls = new JointControls({ container: list, filter: (joint) => joint.kind === 'joint', emptyMessage: 'No joints.' });
-    this.jointControls.setRig(rig, player);
-    node.append(list);
-    if (rig.sequences?.length) {
+    const rigged = rig?.joints.length;
+    const { node, body } = this.group('robot', rigged ? 'Robot' : 'Joints');
+    if (rig?.sequences?.length) {
       const row = element('div', 'button-row sequence-row');
       const select = document.createElement('select');
       select.setAttribute('aria-label', 'Sequence');
@@ -272,30 +308,29 @@ export class PropertiesPanel {
       stop.append(icon('Square', 12), ' Stop');
       stop.addEventListener('click', () => player.stop());
       row.append(select, play, stop);
-      node.append(element('span', 'editor-subtitle', 'Sequences'), row);
+      body.append(element('span', 'editor-subtitle', 'Play a sequence'), row);
+    } else if (!rigged) {
+      body.append(element('p', 'editor-hint', 'This model has no joints yet, so it can\'t move or use Reach.'));
+    }
+    if (!this.editor.playing) {
+      const setup = element('button', 'prop-link');
+      setup.type = 'button';
+      setup.append(icon('Wrench', 13), rigged ? ' Edit joints, tool tip and sequences' : ' Set up its joints');
+      setup.title = 'Opens this model in the Machine tab. Every copy in every scene uses what you set up there.';
+      setup.addEventListener('click', () => this.onEditInMachine?.(item));
+      body.append(setup);
     }
     return node;
   }
 
-  actionsSection(item, runtime) {
-    const node = section();
-    const row = element('div', 'button-row properties-actions');
-    const button = (iconName, label, run, title) => {
-      const control = element('button', null);
-      control.type = 'button';
-      control.append(icon(iconName, 13), ` ${label}`);
-      control.title = title || label;
-      control.addEventListener('click', run);
-      row.append(control);
-      return control;
-    };
-    button('Focus', 'Frame', () => this.editor.emit('frame', item.id), 'Point the camera at it (F)');
-    button('Copy', 'Duplicate', () => this.editor.duplicate(item.id), 'Make a copy next to it (Ctrl+D)');
-    button('Trash2', 'Delete', () => this.editor.removeItems([item.id]), 'Delete it and anything mounted on it (Delete)');
-    if (runtime?.kind === 'model') {
-      button('Wrench', 'Joints & animations', () => this.onEditInMachine?.(item), 'Open this model in Machine mode to set up its joints, tool tip and sequences. Every copy in every scene uses them.');
-    }
-    node.append(row);
+  jointsGroup(runtime) {
+    const { rig, player } = runtime.asset;
+    const count = rig.joints.filter((joint) => joint.kind === 'joint' && !joint.driven).length;
+    const { node, body } = this.group('joints', 'Move joints by hand', { open: false, note: `${count}` });
+    const list = element('div', 'joints-list properties-joints');
+    this.jointControls = new JointControls({ container: list, filter: (joint) => joint.kind === 'joint', emptyMessage: 'No joints.' });
+    this.jointControls.setRig(rig, player);
+    body.append(list);
     return node;
   }
 
