@@ -368,6 +368,8 @@ export class FactoryOverlay {
       group.add(station);
       return { material, fillMaterial, level: 0 };
     });
+    // Hover/focus outlines are UI: they keep their own look in Digital Twin View.
+    group.userData.helper = true;
     this.factory.root.add(group);
     this.highlights = { group, items };
   }

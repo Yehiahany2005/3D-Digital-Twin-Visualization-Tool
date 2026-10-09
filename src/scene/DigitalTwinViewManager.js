@@ -17,6 +17,7 @@ function eachMaterial(material, callback) {
 }
 
 function blendMaterial(working, from, to, progress) {
+  if (!working.color) return;
   working.color.lerpColors(from.color, to.color, progress);
   if (working.emissive && from.emissive && to.emissive) {
     working.emissive.lerpColors(from.emissive, to.emissive, progress);
@@ -40,6 +41,10 @@ export class DigitalTwinViewManager {
     this.isDigitalTwin = false;
     this.transition = null;
     this.materialSlots = [];
+    this.slotByObject = new Map();
+    // Original material → its shared Digital Twin and transition copies, and back.
+    this.variants = new Map();
+    this.originalOf = new WeakMap();
     this.lightSlots = [];
     this.originalBackground = scene.background.clone();
     this.originalFog = scene.fog ? {
@@ -59,29 +64,6 @@ export class DigitalTwinViewManager {
 
   // robot: what gets the Digital Twin tint (a model, a whole scene, or null for nothing but the floor).
   captureMaterials() {
-    this.robot?.traverse((object) => {
-      // Helpers (like the scene editor's selection tint) keep their own look.
-      if (!object.isMesh || !object.material || object.userData.helper) return;
-      const original = object.material;
-      const digital = cloneMaterials(original);
-      const working = cloneMaterials(original);
-
-      eachMaterial(digital, (material) => {
-        material.color.lerp(DIGITAL_ROBOT, 0.72);
-        if (material.emissive) {
-          material.emissive.copy(DIGITAL_EMISSIVE);
-          material.emissiveIntensity = 0.18;
-        }
-        if ('metalness' in material) material.metalness = Math.max(material.metalness, 0.48);
-        if ('roughness' in material) material.roughness = Math.min(material.roughness, 0.42);
-        material.transparent = true;
-        material.opacity = 0.86;
-        material.depthWrite = true;
-      });
-
-      this.materialSlots.push({ object, original, digital, working });
-    });
-
     if (this.floor?.material) {
       const original = this.floor.material;
       const digital = original.clone();
@@ -90,6 +72,87 @@ export class DigitalTwinViewManager {
       digital.roughness = 0.94;
       this.materialSlots.push({ object: this.floor, original, digital, working });
     }
+    this.syncMaterials();
+  }
+
+  // One shared Digital Twin copy (and transition copy) per original material.
+  variantsOf(original) {
+    let variants = this.variants.get(original);
+    if (variants) return variants;
+    const digital = original.clone();
+    if (digital.color) {
+      digital.color.lerp(DIGITAL_ROBOT, 0.72);
+      if (digital.emissive) {
+        digital.emissive.copy(DIGITAL_EMISSIVE);
+        digital.emissiveIntensity = 0.18;
+      }
+      if ('metalness' in digital) digital.metalness = Math.max(digital.metalness, 0.48);
+      if ('roughness' in digital) digital.roughness = Math.min(digital.roughness, 0.42);
+      digital.transparent = true;
+      // Glass and film that were already see-through stay at least as clear.
+      digital.opacity = original.transparent ? Math.min(original.opacity, 0.86) : 0.86;
+      digital.depthWrite = true;
+    }
+    variants = { digital, working: original.clone() };
+    this.variants.set(original, variants);
+    this.originalOf.set(digital, original);
+    this.originalOf.set(variants.working, original);
+    return variants;
+  }
+
+  // Which of a slot's materials should be on screen right now.
+  shownKey() {
+    if (this.transition) return 'working';
+    return this.isDigitalTwin ? 'digital' : 'original';
+  }
+
+  // Brings every mesh under the tinted root up to date: new meshes (cans, cases, pallets made
+  // while running) and meshes whose material the scene swapped (status lamps) get the current
+  // look; meshes that left the root get their own material back.
+  syncMaterials() {
+    const key = this.shownKey();
+    const seen = new Set();
+    const visit = (object) => {
+      // Helpers (like the scene editor's selection tint) keep their own look.
+      if (object.userData.helper) return;
+      if (object.isMesh && object.material) {
+        seen.add(object);
+        this.syncObject(object, key);
+      }
+      object.children.forEach(visit);
+    };
+    if (this.robot) visit(this.robot);
+
+    let removed = false;
+    this.slotByObject.forEach((slot, object) => {
+      if (seen.has(object)) return;
+      object.material = slot.original;
+      this.slotByObject.delete(object);
+      removed = true;
+    });
+    if (removed) this.materialSlots = this.materialSlots.filter((slot) => slot.object === this.floor || this.slotByObject.has(slot.object));
+  }
+
+  syncObject(object, key) {
+    const slot = this.slotByObject.get(object);
+    if (slot && object.material === slot[key]) return;
+    const toOriginal = (material) => this.originalOf.get(material) ?? material;
+    const original = Array.isArray(object.material) ? object.material.map(toOriginal) : toOriginal(object.material);
+    const variants = Array.isArray(original) ? original.map((material) => this.variantsOf(material)) : this.variantsOf(original);
+    const pick = (name) => (Array.isArray(variants) ? variants.map((entry) => entry[name]) : variants[name]);
+    const next = { object, original, digital: pick('digital'), working: pick('working') };
+    if (this.transition) Object.assign(next, this.transitionEnds(next));
+    if (slot) Object.assign(slot, next);
+    else {
+      this.slotByObject.set(object, next);
+      this.materialSlots.push(next);
+    }
+    object.material = next[key];
+  }
+
+  transitionEnds(slot) {
+    const { toDigitalTwin } = this.transition;
+    return { from: toDigitalTwin ? slot.original : slot.digital, to: toDigitalTwin ? slot.digital : slot.original };
   }
 
   captureLights() {
@@ -151,12 +214,19 @@ export class DigitalTwinViewManager {
 
     this.materialSlots.forEach((slot) => {
       slot.object.material = slot.original;
-      eachMaterial(slot.digital, (material) => material.dispose());
-      eachMaterial(slot.working, (material) => material.dispose());
+      if (slot.object !== this.floor) return;
+      slot.digital.dispose();
+      slot.working.dispose();
+    });
+    this.variants.forEach(({ digital, working }) => {
+      digital.dispose();
+      working.dispose();
     });
 
     this.robot = robot;
     this.materialSlots = [];
+    this.slotByObject.clear();
+    this.variants.clear();
     this.captureMaterials();
     if (this.isDigitalTwin) {
       this.materialSlots.forEach((slot) => {
@@ -170,11 +240,17 @@ export class DigitalTwinViewManager {
   useOriginalMaterials() {
     const shown = this.materialSlots.map((slot) => [slot, slot.object.material]);
     this.materialSlots.forEach((slot) => { slot.object.material = slot.original; });
-    return () => shown.forEach(([slot, material]) => { slot.object.material = material; });
+    this.holdOriginals = true;
+    return () => {
+      this.holdOriginals = false;
+      shown.forEach(([slot, material]) => { slot.object.material = material; });
+    };
   }
 
   startTransition(toDigitalTwin) {
     const startProgress = toDigitalTwin ? 0 : 1;
+    // Pick up whatever the running scene added or swapped since the last switch.
+    this.syncMaterials();
     this.materialSlots.forEach((slot) => {
       const from = toDigitalTwin ? slot.original : slot.digital;
       Object.assign(slot, { from, to: toDigitalTwin ? slot.digital : slot.original });
@@ -192,6 +268,8 @@ export class DigitalTwinViewManager {
   }
 
   update(deltaTime) {
+    // A running scene keeps adding and swapping materials, so follow it while the tint is on.
+    if ((this.transition || this.isDigitalTwin) && !this.holdOriginals) this.syncMaterials();
     if (!this.transition) return;
     const transition = this.transition;
     transition.elapsed = Math.min(transition.elapsed + deltaTime, TRANSITION_DURATION);
