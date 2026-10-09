@@ -105,3 +105,56 @@ export function gridWorldSpots(editor, grid) {
     quaternion: frame.quaternion.clone(),
   }));
 }
+
+// ---- Workers with a pallet jack -------------------------------------------------------------
+
+export function isPallet(item) {
+  return item?.source.kind === 'catalog' && item.source.id === 'pallet';
+}
+
+// The scene's pallets, in scene order: [{ id, label }]. With more than one, they are numbered:
+// the first pallet keeps the plain name ("Pallet") in the Explorer, so it is shown as "Pallet 1"
+// next to "Pallet 2", "Pallet 3"… Renamed pallets keep their own names.
+export function palletChoices(editor) {
+  const pallets = editor.items.filter(isPallet);
+  return pallets.map((item) => {
+    const numbered = pallets.length > 1 && !/ \d+$/.test(item.name) && pallets.some((other) => other.name.startsWith(`${item.name} `));
+    return { id: item.id, label: numbered ? `${item.name} 1` : item.name };
+  });
+}
+
+export function palletLabel(editor, id) {
+  if (!id) return null;
+  return palletChoices(editor).find((choice) => choice.id === id)?.label || 'a pallet that was deleted';
+}
+
+// Where a worker can go: every object standing on its own (not the worker, not things mounted on
+// or attached to others, not loose boxes), pallets with their numbered names: [{ target, label }].
+export function destinationChoices(editor, workerId) {
+  const pallets = new Map(palletChoices(editor).map((choice) => [choice.id, choice.label]));
+  return editor.items
+    .filter((item) => item.id !== workerId && !item.mount && !item.attach && !(item.source.kind === 'catalog' && item.source.id === 'box'))
+    .map((item) => ({ target: { kind: 'item', item: item.id }, label: pallets.get(item.id) || item.name }));
+}
+
+export function destinationLabel(editor, target) {
+  if (!target) return null;
+  if (target.kind === 'start') return 'where it started';
+  if (target.kind === 'point') return 'a point on the floor';
+  if (target.kind === 'item') {
+    if (isPallet(editor.item(target.item))) return palletLabel(editor, target.item);
+    return editor.item(target.item)?.name || 'an object that was deleted';
+  }
+  return null;
+}
+
+// The middle of an object on the floor and its turn, in the world, or null if it is gone.
+export function itemFrame(editor, id) {
+  const runtime = editor.runtimes.get(id);
+  if (!runtime || runtime.destroyed) return null;
+  runtime.root.updateMatrixWorld(true);
+  return {
+    position: runtime.root.getWorldPosition(new THREE.Vector3()),
+    quaternion: runtime.root.getWorldQuaternion(new THREE.Quaternion()),
+  };
+}

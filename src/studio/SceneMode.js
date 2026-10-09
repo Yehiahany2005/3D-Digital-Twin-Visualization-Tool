@@ -19,6 +19,7 @@ import { SelectionHighlight } from './SelectionHighlight.js';
 import { ProgramPanel } from './ui/ProgramPanel.js';
 import { ProgramMarkers } from './program/ProgramMarkers.js';
 import { ProgramRunner } from './program/ProgramRunner.js';
+import { WorkerRunner } from './program/WorkerRunner.js';
 import { ReachChecker } from './program/ReachChecker.js';
 import { targetFrame, targetFromHit, targetLabel } from './program/targets.js';
 import { resolveTool } from '../motion/InverseKinematics.js';
@@ -196,7 +197,7 @@ export class SceneMode {
   }
 
   entries() {
-    const models = ASSET_REGISTRY.filter((config) => !config.file).map((config) => ({
+    const models = ASSET_REGISTRY.filter((config) => !config.file && config.inScenes !== false).map((config) => ({
       key: `builtin:${config.id}`,
       name: config.name,
       subtitle: config.type,
@@ -209,7 +210,7 @@ export class SceneMode {
       name: config.name,
       subtitle: formatLabel(config.file.name),
       category: 'My models',
-      icon: 'Box',
+      icon: config.rig ? 'Bot' : 'Box',
       source: { kind: 'import', id: config.id, name: config.file.name },
     }));
     const components = CATALOG.map((component) => ({
@@ -918,14 +919,16 @@ export class SceneMode {
 
   // ---- Robot programs ------------------------------------------------------------------------------
 
-  // Every robot with a program starts it when the scene plays.
+  // Every robot (and worker) with a program starts it when the scene plays.
   startPrograms(simulation) {
     this.runners = new Map();
     this.reportedErrors = new Set();
     this.editor.items.forEach((item) => {
       const runtime = this.editor.runtimes.get(item.id);
-      if (!item.program?.steps?.length || item.hidden || !runtime?.asset?.rig) return;
-      this.runners.set(item.id, new ProgramRunner({ editor: this.editor, simulation, itemId: item.id, onChange: (runner) => this.programChanged(runner) }));
+      if (!item.program?.steps?.length || item.hidden) return;
+      const Runner = runtime?.asset?.rig ? ProgramRunner : runtime?.component?.palletJack ? WorkerRunner : null;
+      if (!Runner) return;
+      this.runners.set(item.id, new Runner({ editor: this.editor, simulation, itemId: item.id, onChange: (runner) => this.programChanged(runner) }));
     });
     this.runners.forEach((runner) => runner.start());
   }

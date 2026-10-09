@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import {
-  DEFAULT_APPROACH, DEFAULT_BOX, STEP_ORDER, STEP_TYPES, duplicateStep, emptyProgram, enclosingGrid, findStep, gridSpots,
-  insertSteps, moveStep, newStep, normalizeProgram, pickAndPlaceSteps, removeStep, stepCount, updateStep,
+  DEFAULT_APPROACH, DEFAULT_BOX, STEP_ORDER, STEP_TYPES, WORKER_STEP_ORDER, duplicateStep, emptyProgram, enclosingGrid, findStep, gridSpots,
+  insertSteps, moveStep, movePalletSteps, newStep, normalizeProgram, pickAndPlaceSteps, removeStep, stepCount, updateStep,
 } from '../program/Program.js';
-import { gridSurfaces, gridWorldSpots, sceneSpots, targetFrame, targetLabel } from '../program/targets.js';
+import {
+  destinationChoices, destinationLabel, gridSurfaces, gridWorldSpots, isPallet, itemFrame, palletChoices, palletLabel, sceneSpots,
+  targetFrame, targetLabel,
+} from '../program/targets.js';
 import { getComponent, resolveParams } from '../catalog/index.js';
 import { icon } from './icons.js';
 import { makeScrubbable } from './scrub.js';
@@ -34,7 +37,8 @@ const key = (target) => (target ? JSON.stringify(target) : '');
 const same = (a, b) => key(a) === key(b);
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
-// A robot's program, in the Selected panel: the steps it runs when the scene plays.
+// A robot's program, in the Selected panel: the steps it runs when the scene plays. A worker with
+// a pallet jack gets the same panel with its own steps (pick up a pallet, go to, put it down).
 //
 // Steps are listed in order (blocks indent the steps they repeat). Click a step to open it: its
 // settings, where it goes (shown in the 3D view, green if the robot can reach it), and buttons
@@ -61,9 +65,11 @@ export class ProgramPanel {
 
   // ---- The group in the Selected panel -----------------------------------------------------
 
-  // Called by the Selected panel for a selected robot; returns the group to show, or null.
+  // Called by the Selected panel for a selected robot or worker; returns the group to show, or null.
   section(item, runtime, panel) {
-    if (runtime?.kind !== 'model' || !runtime.asset?.rig?.joints.length) {
+    const robot = runtime?.kind === 'model' && runtime.asset?.rig?.joints.length;
+    const worker = runtime?.kind === 'component' && runtime.component?.palletJack;
+    if (!robot && !worker) {
       this.detach();
       return null;
     }
@@ -104,6 +110,11 @@ export class ProgramPanel {
     return this.runtime?.asset?.rig;
   }
 
+  // A worker with a pallet jack rather than a robot.
+  get worker() {
+    return Boolean(this.runtime?.component?.palletJack);
+  }
+
   get playing() {
     return this.editor.playing;
   }
@@ -131,11 +142,13 @@ export class ProgramPanel {
     if (note) note.textContent = count ? plural(count, 'step') : 'empty';
     const parts = [];
     if (this.playing) parts.push(this.runStatus());
-    if (!this.rig.tools.length) {
+    if (!this.worker && !this.rig.tools.length) {
       parts.push(element('p', 'program-warning', 'No tool tip yet: put a gripper on this robot (select the gripper → Attach), or set its tool tip with Reach → Tool tip. Reach and Grip need it.'));
     }
     if (!program.steps.length && !this.playing) {
-      parts.push(element('p', 'editor-hint', 'This robot stands still when the scene plays. Add steps one by one, or let Pick & place write a whole cycle for you.'));
+      parts.push(element('p', 'editor-hint', this.worker
+        ? 'This worker stands still when the scene plays. Add steps one by one, or let Move a pallet write a whole trip for you.'
+        : 'This robot stands still when the scene plays. Add steps one by one, or let Pick & place write a whole cycle for you.'));
     }
     if (program.steps.length) {
       const list = element('ol', 'program-steps');
@@ -149,7 +162,9 @@ export class ProgramPanel {
         const actions = element('div', 'program-actions');
         actions.append(
           button('Add step', () => { this.adding = this.adding === 'root' ? null : 'root'; this.render(); }, { iconName: 'Plus', className: this.adding === 'root' ? 'is-active' : '' }),
-          button('Pick & place', () => { this.builder = this.defaultBuilder(); this.adding = null; this.render(); }, { iconName: 'WandSparkles', title: 'Write a whole pick-and-place cycle: wait for a box, pick it up, put it on the next spot of a grid' }),
+          this.worker
+            ? button('Move a pallet', () => this.addPalletTrip(), { iconName: 'WandSparkles', title: 'Write a whole trip: pick up a pallet, take it somewhere, put it down and come back' })
+            : button('Pick & place', () => { this.builder = this.defaultBuilder(); this.adding = null; this.render(); }, { iconName: 'WandSparkles', title: 'Write a whole pick-and-place cycle: wait for a box, pick it up, put it on the next spot of a grid' }),
         );
         parts.push(actions);
         if (this.adding === 'root') parts.push(this.addMenu(null));
@@ -171,7 +186,7 @@ export class ProgramPanel {
     this.live.push(() => {
       const runner = this.runnerFor(this.itemId);
       node.classList.toggle('is-error', Boolean(runner?.error));
-      node.textContent = !runner ? 'This robot has no program to run.'
+      node.textContent = !runner ? 'There is no program to run.'
         : runner.error ? `Stopped: ${runner.error.message}`
           : runner.finished ? 'Program finished.'
             : `Now: ${runner.status}`;
@@ -230,7 +245,7 @@ export class ProgramPanel {
   addMenu(parentId) {
     const menu = element('div', 'program-add-menu');
     const insideGrid = parentId && (findStep(this.program.steps, parentId)?.step.type === 'grid' || enclosingGrid(this.program.steps, parentId));
-    STEP_ORDER.forEach((type) => {
+    (this.worker ? WORKER_STEP_ORDER : STEP_ORDER).forEach((type) => {
       const definition = STEP_TYPES[type];
       const choice = element('button', 'program-add-choice');
       choice.type = 'button';
@@ -252,6 +267,11 @@ export class ProgramPanel {
   // Sensible first settings, so a new step usually works without changing anything.
   defaultsFor(type) {
     const rig = this.rig;
+    if (type === 'pick-pallet') return { pallet: palletChoices(this.editor)[0]?.id ?? null };
+    if (type === 'wait-load') {
+      const pallet = palletChoices(this.editor)[0]?.id ?? null;
+      return { pallet, count: this.expectedLoad(pallet) || 1 };
+    }
     if (type === 'pose') return { pose: rig.poses[0]?.id ?? null };
     if (type === 'sequence') return { sequence: rig.sequences[0]?.id ?? null };
     if (type === 'grid') {
@@ -275,6 +295,31 @@ export class ProgramPanel {
     return this.editor.items.filter((item) => this.editor.runtimes.get(item.id)?.component?.belt);
   }
 
+  // How many boxes a robot in this scene stacks on a pallet (the spots of its grid there), or 0.
+  expectedLoad(palletId) {
+    if (!palletId) return 0;
+    let count = 0;
+    const visit = (steps) => steps.forEach((step) => {
+      if (step.type === 'grid' && step.on?.item === palletId) count = Math.max(count, gridSpots(step).length);
+      if (step.steps) visit(step.steps);
+    });
+    this.editor.items.forEach((item) => visit(normalizeProgram(item.program).steps));
+    return count;
+  }
+
+  // "Move a pallet": the first pallet, taken to the first other object (a wrapper, if there is
+  // one), after waiting for a robot to fill it if one stacks it.
+  addPalletTrip() {
+    const pallet = palletChoices(this.editor)[0]?.id ?? null;
+    const destinations = destinationChoices(this.editor, this.itemId).filter((choice) => !isPallet(this.editor.item(choice.target.item)));
+    const wrapper = destinations.find((choice) => this.editor.item(choice.target.item)?.source.id === 'stretch_wrapper');
+    const to = (wrapper || destinations.find((choice) => !this.editor.runtimes.get(choice.target.item)?.asset?.rig) || destinations[0])?.target ?? null;
+    const steps = movePalletSteps({ pallet, to, waitFor: this.expectedLoad(pallet) });
+    this.adding = null;
+    this.expanded = null;
+    this.commit((program) => insertSteps(program, steps), 'Add pallet trip');
+  }
+
   describe(step) {
     const rig = this.rig;
     switch (step.type) {
@@ -293,6 +338,13 @@ export class ProgramPanel {
       case 'conveyor': {
         const conveyor = this.editor.item(step.item);
         return conveyor ? `${conveyor.name} ${step.running ? 'on' : 'off'}` : 'choose a conveyor';
+      }
+      case 'pick-pallet': return palletLabel(this.editor, step.pallet) || 'choose a pallet';
+      case 'go-to': return destinationLabel(this.editor, step.target) || 'choose where';
+      case 'put-down': return 'where it is';
+      case 'wait-load': {
+        const count = step.count ?? 1;
+        return step.pallet ? `${count} box${count === 1 ? '' : 'es'} on ${palletLabel(this.editor, step.pallet)}` : 'choose a pallet';
       }
       default: return '';
     }
@@ -361,6 +413,16 @@ export class ProgramPanel {
         }
         break;
       }
+      case 'pick-pallet':
+        node.append(this.palletPicker(step.pallet, (value) => update({ pallet: value }, 'Choose pallet')));
+        break;
+      case 'go-to':
+        node.append(this.destinationPicker(step.target, (target) => update({ target }, 'Choose where to go')));
+        break;
+      case 'wait-load':
+        node.append(this.palletPicker(step.pallet, (value) => update({ pallet: value }, 'Choose pallet')));
+        fields.append(this.number('Boxes', '', step.count ?? 1, 1, 1, (value) => update({ count: Math.round(value) }, 'Change box count'), 'Carry on once the pallet has at least this many boxes on it'));
+        break;
       default:
         break;
     }
@@ -419,6 +481,47 @@ export class ProgramPanel {
       button('', () => this.pickTarget({ purpose, onPicked: choose }), { iconName: 'Crosshair', title: 'Click the spot in the 3D view (near a conveyor end or a pallet top it snaps to it)', className: 'icon-button' }),
     );
     return row;
+  }
+
+  // A pallet, from a list numbered when there are several.
+  palletPicker(current, choose) {
+    const node = element('div', 'program-fields');
+    const pallets = palletChoices(this.editor);
+    if (!pallets.length) {
+      node.append(element('p', 'program-warning', 'There is no pallet in this scene: add one (Add → Pallets & boxes).'));
+      return node;
+    }
+    node.append(this.select('Pallet', pallets.map((choice) => [choice.id, choice.label]), current, (value) => choose(value), 'choose…'));
+    return node;
+  }
+
+  // Where a worker goes: an object, where it started, or a point clicked on the floor.
+  destinationPicker(current, choose) {
+    const row = element('div', 'program-spot');
+    const options = [[key({ kind: 'start' }), 'Where it started'], ...destinationChoices(this.editor, this.itemId).map((choice) => [key(choice.target), choice.label])];
+    if (current && !options.some(([value]) => value === key(current))) options.push([key(current), destinationLabel(this.editor, current)]);
+    row.append(
+      this.select('Go to', options, key(current), (value) => choose(value ? JSON.parse(value) : null), 'choose…'),
+      button('', () => this.pickTarget({
+        purpose: 'go to',
+        onPicked: (target) => choose(target.item ? { kind: 'item', item: target.item } : target),
+      }), { iconName: 'Crosshair', title: 'Click an object or a point on the floor in the 3D view', className: 'icon-button' }),
+    );
+    return row;
+  }
+
+  // Where a worker's step goes, to show in the 3D view: a pallet's top or the destination.
+  workerPoint(step) {
+    const palletId = step.type === 'pick-pallet' || step.type === 'wait-load' ? step.pallet : null;
+    if (palletId) {
+      const frame = itemFrame(this.editor, palletId);
+      const height = this.editor.runtimes.get(palletId)?.component?.palletSize?.height ?? 0;
+      return frame ? frame.position.addScaledVector(UP, height) : null;
+    }
+    if (step.type !== 'go-to' || !step.target) return null;
+    if (step.target.kind === 'start') return itemFrame(this.editor, this.itemId)?.position || null;
+    if (step.target.kind === 'item') return itemFrame(this.editor, step.target.item)?.position || null;
+    return targetFrame(this.editor, step.target)?.position || null;
   }
 
   // ---- Reachability ----------------------------------------------------------------------------
@@ -588,6 +691,12 @@ export class ProgramPanel {
   // The open step's spots in the 3D view (nothing while playing).
   updateMarkers() {
     const step = this.expanded && !this.playing ? findStep(this.program.steps, this.expanded)?.step : null;
+    if (step && this.worker) {
+      const point = this.workerPoint(step);
+      if (point) this.markers.show({ points: [{ position: point, state: 'ok' }] });
+      else this.markers.clear();
+      return;
+    }
     const found = step && this.stepPoints(step, this.program);
     if (!found) {
       this.markers.clear();

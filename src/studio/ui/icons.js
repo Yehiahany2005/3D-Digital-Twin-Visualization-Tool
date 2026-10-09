@@ -1,5 +1,7 @@
 import {
   AlertTriangle,
+  ArrowDownToLine,
+  ArrowUpFromLine,
   Bot,
   Box,
   ChevronDown,
@@ -13,6 +15,7 @@ import {
   Eye,
   EyeOff,
   Focus,
+  Forklift,
   Grab,
   Grid3x3,
   Hand,
@@ -22,7 +25,9 @@ import {
   ListVideo,
   Lock,
   LockOpen,
+  MapPin,
   Package,
+  PackageCheck,
   PackageSearch,
   Pencil,
   Play,
@@ -40,9 +45,9 @@ import {
 } from 'lucide';
 
 const ICONS = {
-  AlertTriangle, Bot, Box, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Copy, Crosshair, Eye, EyeOff, Focus, Grab,
-  Grid3x3, Hand, House, Layers, Link, ListVideo, Lock, LockOpen, Package, PackageSearch, Pencil, Play, Plus, Power, Repeat, Scan, Square,
-  Timer, Trash2, Unlink, User, WandSparkles, Wrench,
+  AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Bot, Box, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Copy,
+  Crosshair, Eye, EyeOff, Focus, Forklift, Grab, Grid3x3, Hand, House, Layers, Link, ListVideo, Lock, LockOpen, MapPin, Package,
+  PackageCheck, PackageSearch, Pencil, Play, Plus, Power, Repeat, Scan, Square, Timer, Trash2, Unlink, User, WandSparkles, Wrench,
 };
 
 // An icon as an SVG element, for UI built in code (createIcons only handles the page's HTML).

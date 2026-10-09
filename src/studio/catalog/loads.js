@@ -22,6 +22,8 @@ export const pallet = {
       anchors: { surface: anchor('surface', [0, height, 0], [0, 1, 0], { size: [length, width] }) },
       colliders: [collider([length, height, width], [0, height / 2, 0])],
       body: 'static',
+      // For a worker's pallet jack: the forks go in along a side and lift it by its middle.
+      palletSize: { length, width, height },
       dispose: () => disposeObject(built.root),
     };
   },

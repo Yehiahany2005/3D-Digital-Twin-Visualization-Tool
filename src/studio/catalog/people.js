@@ -6,24 +6,59 @@ import { downloadModel } from '../../loaders/download.js';
 import personUrl from '../../assets/people/KayKit_Rogue.glb?url';
 import { choice, disposeObject, number, toggle } from './shared.js';
 
-// Simple worker with a pallet jack, built from boxes. Origin on the floor; faces +X.
+// A worker with a hand pallet jack, built from boxes. Origin on the floor; the forks point +X.
+// Standing still unless given a program (Selected panel → Program): it then picks up pallets,
+// takes them somewhere and puts them down while the scene plays (see WorkerRunner).
 export const worker = {
   id: 'worker',
   name: 'Worker with pallet jack',
   category: 'People',
-  description: 'Simple figure with a hand pallet jack',
-  icon: 'User',
+  description: 'Picks up pallets and takes them where you say',
+  icon: 'Forklift',
   params: {
     forkHeight: number('Fork height', 0, { min: 0, max: 0.2, step: 0.01, unit: 'm' }),
   },
   build({ forkHeight }) {
     const built = createProceduralWorker();
-    built.setForkHeight(0.045 + forkHeight);
+    const lowered = 0.045 + forkHeight;
+    built.setForkHeight(lowered);
+    let walking = 0;
+    let phase = 0;
     return {
       root: built.root,
       anchors: {},
       colliders: [],
       body: 'none',
+      // What a program drives. A carried pallet's middle sits `cargo` metres ahead of the origin,
+      // and the fork ends reach `forkEnd`. Fork heights are those of the forks' group.
+      palletJack: {
+        forks: built.forks,
+        cargo: built.references.cargoAnchor.x,
+        forkEnd: built.references.forkEnd,
+        lowered,
+        setForkHeight: built.setForkHeight,
+        getForkHeight: built.getForkHeight,
+        // How fast it is walking (m/s), for the legs; 0 stands still.
+        setWalking(speed) {
+          walking = speed;
+        },
+      },
+      update(deltaTime) {
+        if (walking > 0) {
+          phase += deltaTime * walking * 6;
+          built.setStride(phase);
+        } else if (phase) {
+          phase = 0;
+          built.setStride(0);
+        }
+      },
+      // Back as placed (after the scene stops playing).
+      setVisualState() {
+        walking = 0;
+        phase = 0;
+        built.setStride(0);
+        built.setForkHeight(lowered);
+      },
       dispose: () => disposeObject(built.root),
     };
   },
@@ -35,13 +70,10 @@ const HIDDEN_PROPS = /knife|crossbow|throwable|cape/i;
 const ANIMATIONS = [
   ['Idle', 'Standing'],
   ['Walking_A', 'Walking'],
-  ['Walking_C', 'Walking (relaxed)'],
   ['Running_A', 'Running'],
   ['PickUp', 'Picking up'],
   ['Interact', 'Working at something'],
   ['Use_Item', 'Using a tool'],
-  ['Sit_Chair_Idle', 'Sitting'],
-  ['Cheer', 'Cheering'],
 ];
 
 let personTemplate = null;

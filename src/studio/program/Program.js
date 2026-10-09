@@ -1,4 +1,4 @@
-// A robot's program in a scene: what the robot does when the scene plays. It is saved with the
+// A robot's (or a worker's) program in a scene: what it does when the scene plays. It is saved with the
 // scene, on the robot's item (item.program), because its steps refer to things in that scene
 // ("the box at the end of this conveyor", "the next spot on that pallet"). The robot's own poses
 // and sequences (Machine tab → Animation Setup) can be used as steps too.
@@ -12,6 +12,12 @@
 //                                         item null: a point on the floor, in world coordinates
 //   { kind: 'box', at: spot | point }     the box waiting at that spot (found when the step runs)
 //   { kind: 'grid' }                      the current spot of the grid this step repeats across
+//
+// A worker with a pallet jack has its own steps (WORKER_STEP_ORDER). Where it goes ("Go to"):
+//   { kind: 'item', item }                an object: the pallet's middle ends up on the object's
+//                                         middle, square with it (a wrapper's turntable, a marked bay)
+//   { kind: 'point', item: null, offset } a point on the floor
+//   { kind: 'start' }                     where the worker stood when the scene started
 
 import { newId } from '../SceneDocument.js';
 
@@ -26,10 +32,16 @@ export const STEP_TYPES = {
   grid: { label: 'Repeat across a grid', icon: 'Grid3x3', block: true, help: 'Run the steps inside once for every spot of a grid (e.g. layers of boxes on a pallet).' },
   repeat: { label: 'Repeat', icon: 'Repeat', block: true, help: 'Run the steps inside a number of times.' },
   conveyor: { label: 'Conveyor on / off', icon: 'Power', help: 'Start or stop a conveyor.' },
+  // A worker with a pallet jack.
+  'pick-pallet': { label: 'Pick up pallet', icon: 'ArrowUpFromLine', help: 'Walk to a pallet, slide the forks under it and lift it (with the boxes on it).' },
+  'go-to': { label: 'Go to', icon: 'MapPin', help: 'Walk somewhere, carrying the pallet if it has one. At an object, the pallet ends up on its middle.' },
+  'put-down': { label: 'Put pallet down', icon: 'ArrowDownToLine', help: 'Lower the pallet where it is (onto a low surface like a turntable, or the floor) and back away.' },
+  'wait-load': { label: 'Wait for boxes', icon: 'PackageCheck', help: 'Pause until a pallet has this many boxes on it (e.g. a robot has finished stacking it).' },
 };
 
 // Order in the "Add step" menu.
 export const STEP_ORDER = ['reach', 'grip', 'release', 'wait-box', 'grid', 'pose', 'sequence', 'wait', 'repeat', 'conveyor'];
+export const WORKER_STEP_ORDER = ['pick-pallet', 'go-to', 'put-down', 'wait-load', 'wait', 'repeat'];
 
 // The box most scenes use (the catalog box's default size), for planning before anything plays.
 export const DEFAULT_BOX = { length: 0.62, width: 0.42, height: 0.42 };
@@ -56,6 +68,9 @@ export function newStep(type, settings = {}) {
     };
     case 'repeat': return { ...base, times: 3, steps: [], ...settings };
     case 'conveyor': return { ...base, item: null, running: false, ...settings };
+    case 'pick-pallet': return { ...base, pallet: null, ...settings };
+    case 'go-to': return { ...base, target: null, ...settings };
+    case 'wait-load': return { ...base, pallet: null, count: 1, ...settings };
     default: return { ...base, ...settings };
   }
 }
@@ -222,4 +237,18 @@ export function pickAndPlaceSteps({ from, onto, grid = null, box = DEFAULT_BOX, 
     })]
     : cycle;
   return [...home, ...body, ...home.map((step) => ({ ...step, id: newId('step') }))];
+}
+
+// ---- The "Move a pallet" shortcut ------------------------------------------------------------
+
+// A worker's usual trip, as plain steps the user can then change:
+//   [Wait for boxes] → Pick up pallet → Go to (destination) → Put pallet down → Go to (where it started)
+export function movePalletSteps({ pallet = null, to = null, waitFor = 0 } = {}) {
+  return [
+    ...(waitFor > 0 ? [newStep('wait-load', { pallet, count: waitFor })] : []),
+    newStep('pick-pallet', { pallet }),
+    newStep('go-to', { target: to }),
+    newStep('put-down'),
+    newStep('go-to', { target: { kind: 'start' } }),
+  ];
 }

@@ -33,9 +33,13 @@ export function createProceduralWorker() {
   const accent = new THREE.MeshStandardMaterial({ color: 0xd58a27, metalness: 0.45, roughness: 0.38 });
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1a1d20, roughness: 0.85, metalness: 0.05 });
 
+  // The figure is modelled facing its own +Z and turned to face +X, the way the jack moves. It
+  // stands behind the tiller with both hands on the handle. Legs hang from hip pivots so they
+  // can swing while walking (setStride).
   const figure = new THREE.Group();
   figure.name = 'WorkerFigure';
-  figure.position.set(-0.55, 0, 0.28);
+  figure.position.set(-0.98, 0, 0);
+  figure.rotation.y = Math.PI / 2;
   root.add(figure);
 
   beam(figure, [0.28, 0.52, 0.2], [0, 1.05, 0], suit, 'Torso');
@@ -44,13 +48,28 @@ export function createProceduralWorker() {
   head.position.set(0, 1.55, 0);
   const hardHat = mesh(new THREE.SphereGeometry(0.125, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), accent, 'Hard hat', figure);
   hardHat.position.set(0, 1.6, 0);
-  beam(figure, [0.09, 0.42, 0.09], [-0.1, 0.55, 0], suitDark, 'Left leg');
-  beam(figure, [0.09, 0.42, 0.09], [0.1, 0.55, 0], suitDark, 'Right leg');
-  beam(figure, [0.12, 0.08, 0.2], [-0.1, 0.08, 0.04], boot, 'Left boot');
-  beam(figure, [0.12, 0.08, 0.2], [0.1, 0.08, 0.04], boot, 'Right boot');
-  beam(figure, [0.08, 0.38, 0.08], [-0.22, 1.1, 0.12], suit, 'Left arm');
-  beam(figure, [0.08, 0.38, 0.08], [0.18, 1.05, 0.18], suit, 'Right arm');
-  beam(figure, [0.07, 0.07, 0.07], [0.18, 0.84, 0.32], skin, 'Right hand');
+  const hips = [[-0.1, 'Left'], [0.1, 'Right']].map(([x, side]) => {
+    const hip = new THREE.Group();
+    hip.name = `${side} hip`;
+    hip.position.set(x, 0.76, 0);
+    figure.add(hip);
+    beam(hip, [0.09, 0.42, 0.09], [0, -0.21, 0], suitDark, `${side} leg`);
+    beam(hip, [0.12, 0.08, 0.2], [0, -0.68, 0.04], boot, `${side} boot`);
+    return hip;
+  });
+  // Arms from the shoulders to the tiller handle (at x −0.62, y 0.98 in the root frame).
+  [[-0.18, -0.15, 'Left'], [0.18, 0.15, 'Right']].forEach(([shoulderX, handX, side]) => {
+    const shoulder = new THREE.Vector3(shoulderX, 1.27, 0);
+    const hand = new THREE.Vector3(handX, 0.98, 0.36);
+    const reach = hand.clone().sub(shoulder);
+    const arm = new THREE.Group();
+    arm.name = `${side} arm`;
+    arm.position.copy(shoulder);
+    arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), reach.clone().normalize());
+    figure.add(arm);
+    beam(arm, [0.08, reach.length(), 0.08], [0, -reach.length() / 2, 0], suit, `${side} sleeve`);
+    beam(arm, [0.07, 0.07, 0.07], [0, -reach.length(), 0], skin, `${side} hand`);
+  });
 
   const jack = new THREE.Group();
   jack.name = 'PalletJack';
@@ -90,6 +109,8 @@ export function createProceduralWorker() {
   const references = {
     cargoAnchor: cargoAnchor.position.clone(),
     forkTip: new THREE.Vector3(forkLength - 0.2, 0.06, 0),
+    // The very end of the forks, along +X from the root.
+    forkEnd: forkLength - 0.15,
   };
 
   return {
@@ -104,6 +125,12 @@ export function createProceduralWorker() {
     },
     getForkHeight() {
       return forks.position.y;
+    },
+    // Walking: the legs swing with `phase` (radians, one step per π); 0 stands still.
+    setStride(phase) {
+      const swing = Math.sin(phase) * 0.45;
+      hips[0].rotation.x = swing;
+      hips[1].rotation.x = -swing;
     },
   };
 }

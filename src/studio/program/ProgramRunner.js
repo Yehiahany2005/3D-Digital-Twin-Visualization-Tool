@@ -24,7 +24,7 @@ function centimetres(metres) {
   return metres >= 1 ? `${metres.toFixed(2)} m` : `${Math.max(1, Math.round(metres * 100))} cm`;
 }
 
-// Runs one robot's program while the scene plays.
+// Runs one robot's program while the scene plays (WorkerRunner extends it for workers).
 //
 // Steps run one after another (moves take as long as the joints' speeds allow). Waiting (for
 // time, for a box) is checked every frame in update(), so nothing blocks the view. Anything that
@@ -93,7 +93,8 @@ export class ProgramRunner {
   }
 
   async runStep(step, context) {
-    const { rig, player } = this.asset;
+    // A worker (WorkerRunner) has no robot; it only uses the steps that don't need one.
+    const { rig, player } = this.asset || {};
     switch (step.type) {
       case 'pose': {
         const pose = rig.poses.find((candidate) => candidate.id === step.pose);

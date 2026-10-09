@@ -388,6 +388,59 @@ export class Simulation {
     return true;
   }
 
+  // ---- What workers with a pallet jack use ---------------------------------------------------
+
+  // A scene item's body, e.g. a pallet's.
+  itemBody(itemId) {
+    return this.bodies.find((entry) => entry.item?.id === itemId && entry.runtime && !entry.object) || null;
+  }
+
+  // The loose boxes standing on a pallet (or on boxes on it): their middles are over its top,
+  // within its outline (in its own frame), and none is held by a robot.
+  boxesOn(itemId) {
+    const pallet = this.itemBody(itemId);
+    if (!pallet?.size) return [];
+    const root = pallet.runtime.root;
+    root.updateWorldMatrix(true, false);
+    const inverse = root.matrixWorld.clone().invert();
+    const [length, height, width] = pallet.size;
+    const top = pallet.center[1] + height / 2;
+    return this.bodies.filter((entry) => {
+      if (entry.type !== 'dynamic' || entry.held || !entry.size) return false;
+      const middle = this.boxTop(entry).addScaledVector(new THREE.Vector3(0, 1, 0), -entry.size[1] / 2).applyMatrix4(inverse);
+      return middle.y > top && Math.abs(middle.x) <= length / 2 + 0.05 && Math.abs(middle.z) <= width / 2 + 0.05;
+    });
+  }
+
+  // Lifts a pallet: from now on its body follows where it is drawn (the worker moves it), and the
+  // boxes on it go with it. Returns what to give setDown, or null if the pallet has no body.
+  carry(itemId) {
+    const pallet = this.itemBody(itemId);
+    if (!pallet) return null;
+    const boxes = this.boxesOn(itemId);
+    pallet.restType = pallet.type;
+    pallet.type = 'kinematic';
+    pallet.body.setBodyType(this.RAPIER.RigidBodyType.KinematicPositionBased, true);
+    boxes.forEach((box) => this.hold(box, pallet.runtime.root));
+    return { pallet, boxes };
+  }
+
+  // Puts a carried pallet down where it is drawn now, and lets go of its boxes (they rest on it).
+  setDown(carried) {
+    if (!carried) return;
+    const { pallet, boxes } = carried;
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    pallet.runtime.root.updateWorldMatrix(true, false);
+    pallet.runtime.root.matrixWorld.decompose(position, quaternion, new THREE.Vector3());
+    const fixed = pallet.restType !== 'kinematic';
+    pallet.type = pallet.restType;
+    pallet.body.setBodyType(fixed ? this.RAPIER.RigidBodyType.Fixed : this.RAPIER.RigidBodyType.KinematicPositionBased, true);
+    pallet.body.setTranslation(v(position), true);
+    pallet.body.setRotation(q(quaternion), true);
+    boxes.forEach((box) => this.release(box));
+  }
+
   get boxCount() {
     return this.bodies.filter((entry) => entry.type === 'dynamic').length;
   }
