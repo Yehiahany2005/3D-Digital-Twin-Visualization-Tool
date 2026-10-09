@@ -8,6 +8,7 @@ import { describeBody, Simulation } from './Simulation.js';
 import { anchorNamed, anchorsOf } from './Anchors.js';
 import { deleteScene, lastSceneId, listScenes, loadScene, rememberLastScene, saveScene } from './SceneStore.js';
 import { buildBundle, downloadBlob, readBundle } from './SceneBundle.js';
+import { isFileScene, sceneFromFile, sceneSlug } from '../scenes/index.js';
 import { currentRigDefinition, ModelTemplates } from './ModelTemplates.js';
 import { SceneEditor } from './SceneEditor.js';
 import { CATALOG, getComponent, resolveParams } from './catalog/index.js';
@@ -603,12 +604,22 @@ export class SceneMode {
     ui.sceneDelete.addEventListener('click', () => this.deleteCurrent());
     ui.sceneCopy.addEventListener('click', () => this.duplicateScene());
     ui.sceneExport.addEventListener('click', () => this.exportScene());
+    // Development only (npm run dev): write the scene into src/scenes so it ships with the app.
+    if (import.meta.env.DEV && ui.sceneSaveProject) {
+      ui.sceneSaveProject.hidden = false;
+      ui.sceneSaveProject.addEventListener('click', () => this.saveToProject());
+    }
+  }
+
+  // A saved scene, or a built-in scene file (src/scenes) that hasn't been changed here.
+  async loadAnyScene(id) {
+    return (await loadScene(id).catch(() => null)) || sceneFromFile(id);
   }
 
   // The scene to open: the one asked for, else the last one open, else the latest saved.
   async openLastOrNew(preferredId = null) {
     const id = preferredId || lastSceneId();
-    let scene = id ? await loadScene(id).catch(() => null) : null;
+    let scene = id ? await this.loadAnyScene(id) : null;
     if (!scene) {
       const [latest] = await listScenes();
       scene = latest ? await loadScene(latest.id).catch(() => null) : null;
@@ -619,10 +630,8 @@ export class SceneMode {
   async openScene(id) {
     if (id === this.editor.document.id) return;
     await this.saveNow();
-    const scene = await loadScene(id).catch((error) => {
-      this.onError?.(`Couldn't open that scene: ${error.message}`);
-      return null;
-    });
+    const scene = await this.loadAnyScene(id);
+    if (!scene) this.onError?.('Couldn\'t open that scene: it is no longer saved in this browser.');
     if (scene) await this.show(scene);
     else this.onScenesSaved?.();
   }
@@ -640,6 +649,14 @@ export class SceneMode {
 
   async deleteCurrent() {
     const scene = this.editor.document;
+    if (isFileScene(scene.id)) {
+      if (!window.confirm(`Go back to the original "${sceneFromFile(scene.id)?.name || scene.name}"? Your changes to it in this browser are lost.`)) return;
+      clearTimeout(this.saveTimer);
+      await deleteScene(scene.id).catch(() => {});
+      await this.show(sceneFromFile(scene.id) || emptyScene('New scene'));
+      this.onStatus?.(`Back to the original "${this.editor.document.name}".`);
+      return;
+    }
     if (!window.confirm(`Delete the scene "${scene.name}" from this browser? Models it uses stay; only the layout is deleted.`)) return;
     clearTimeout(this.saveTimer);
     await deleteScene(scene.id).catch(() => {});
@@ -658,6 +675,9 @@ export class SceneMode {
     }
     rememberLastScene(scene.id);
     this.ui.sceneName.value = scene.name;
+    this.ui.sceneDelete.title = isFileScene(scene.id)
+      ? 'Undo your changes to this built-in scene (back to the original)'
+      : 'Delete this scene from this browser';
     this.updateTitle();
     this.onScenesSaved?.();
     if (scene.camera) this.restoreCamera(scene.camera);
@@ -683,6 +703,17 @@ export class SceneMode {
       position: this.cameraManager.camera.position.toArray().map((value) => Math.round(value * 1000) / 1000),
       target: this.controls.target.toArray().map((value) => Math.round(value * 1000) / 1000),
     };
+    // A built-in scene file left as it is isn't kept in the browser, so the file's own version
+    // (which "Save to project" may change) is the one that opens.
+    const original = isFileScene(scene.id) ? sceneFromFile(scene.id) : null;
+    if (original && original.name === scene.name && JSON.stringify(original.items) === JSON.stringify(scene.items)) {
+      await deleteScene(scene.id).catch(() => {});
+      this.lastSaved = JSON.stringify(scene.items);
+      this.ui.saveState.textContent = 'Built-in scene: your changes are kept in this browser';
+      this.ui.saveState.title = 'Change anything and your version is saved here; the bin button brings the original back.';
+      this.ui.saveState.classList.remove('is-error');
+      return;
+    }
     try {
       await saveScene(structuredClone(scene));
       this.lastSaved = JSON.stringify(scene.items);
@@ -710,6 +741,32 @@ export class SceneMode {
     } catch (error) {
       this.onStatus?.(null);
       this.onError?.(`Couldn't export the scene: ${error.message}`);
+    }
+  }
+
+  // Writes the open scene into src/scenes/<name>.json, where it becomes a built-in scene (development
+  // only: the dev server does the writing). Scene files can't carry imported models.
+  async saveToProject() {
+    await this.saveNow();
+    const scene = structuredClone(this.editor.document);
+    const imported = [...new Set(scene.items.filter((item) => item.source.kind === 'import').map((item) => item.source.name || item.source.id))];
+    if (imported.length) {
+      this.onError?.(`Can't save to the project: it uses imported models (${imported.join(', ')}). Built-in scenes can only use built-in models and parts; use Export for this one.`);
+      return;
+    }
+    const slug = sceneSlug(scene);
+    scene.id = `file:${slug}`;
+    try {
+      const response = await fetch('/__scenes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug, scene }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `the dev server answered ${response.status}`);
+      this.onStatus?.(`Saved to ${result.path}. ${isFileScene(this.editor.document.id) ? 'The built-in scene now opens like this.' : 'It is listed under Built-in scenes after a reload.'}`);
+    } catch (error) {
+      this.onError?.(`Couldn't save to the project: ${error.message}`);
     }
   }
 

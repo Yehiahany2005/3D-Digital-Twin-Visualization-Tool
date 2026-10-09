@@ -11,6 +11,7 @@ import {
   Factory,
   Focus,
   Grid3x3,
+  HardDriveDownload,
   LayoutGrid,
   ListTree,
   Maximize,
@@ -60,7 +61,7 @@ import './style.css';
 // This file builds the shared view, switches tabs and runs the frame loop. Each tab's exit()
 // puts away everything it owns, so nothing of one tab shows or reacts in the other.
 
-createIcons({ icons: { ArrowDownToDot, Box, CircleHelp, Clapperboard, CopyPlus, Cpu, Crosshair, Download, Factory, Focus, Grid3x3, LayoutGrid, ListTree, Maximize, MousePointer2, Move, Pause, Play, PlayCircle, Plus, RectangleHorizontal, Redo2, Rotate3d, RotateCw, SlidersHorizontal, Square, TerminalSquare, Trash2, Undo2, Upload, Wrench, X } });
+createIcons({ icons: { ArrowDownToDot, Box, CircleHelp, Clapperboard, CopyPlus, Cpu, Crosshair, Download, Factory, Focus, Grid3x3, HardDriveDownload, LayoutGrid, ListTree, Maximize, MousePointer2, Move, Pause, Play, PlayCircle, Plus, RectangleHorizontal, Redo2, Rotate3d, RotateCw, SlidersHorizontal, Square, TerminalSquare, Trash2, Undo2, Upload, Wrench, X } });
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -267,6 +268,7 @@ const sceneEditor = new SceneMode({
     sceneName: $('[data-scene-name]'),
     sceneDelete: $('[data-scene-delete]'),
     sceneExport: $('[data-scene-export]'),
+    sceneSaveProject: $('[data-scene-save-project]'),
     saveState: $('[data-scene-save-state]'),
   },
   onStatus: (message) => status.show(message),

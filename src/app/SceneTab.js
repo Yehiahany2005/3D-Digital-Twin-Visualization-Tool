@@ -1,6 +1,7 @@
 import { PickerMenu } from '../ui/PickerMenu.js';
 import { BUILT_IN_SCENES, BuiltInScenes, getBuiltInScene } from '../station/BuiltInScenes.js';
 import { lastSceneId, listScenes, rememberLastScene } from '../studio/SceneStore.js';
+import { isFileScene, SCENE_FILES } from '../scenes/index.js';
 
 const BUILT_IN_PREFIX = 'builtin:';
 const DEFAULT_SCENE = `${BUILT_IN_PREFIX}factory`;
@@ -8,7 +9,8 @@ const DEFAULT_SCENE = `${BUILT_IN_PREFIX}factory`;
 const itemCount = (count) => `${count} item${count === 1 ? '' : 's'}`;
 
 // Scene tab: whole scenes, from two sources that share the header picker and the sidebar.
-//   Built-in scenes: production lines made in code (src/station). Run them; they can't be edited.
+//   Built-in scenes: production lines made in code (src/station), which run but can't be edited,
+//     and scene files (src/scenes), which open in the scene editor like any scene of yours.
 //   My scenes: scenes built by drag and drop in the scene editor (src/studio), saved in this browser.
 // One of the two is active at a time; the other is fully put away (its 3D content, sidebar cards,
 // viewport toolbar, Reach and viewport clicks).
@@ -57,13 +59,17 @@ export class SceneTab {
   }
 
   groups() {
-    const current = this.editor.opened ? this.editor.editor.document : null;
-    const saved = this.saved.map((scene) => (scene.id === current?.id ? { ...scene, name: current.name, itemCount: current.items.length } : scene));
+    const opened = this.editor.opened ? this.editor.editor.document : null;
+    const current = opened && !isFileScene(opened.id) ? opened : null;
+    const saved = this.saved.filter((scene) => !isFileScene(scene.id)).map((scene) => (scene.id === current?.id ? { ...scene, name: current.name, itemCount: current.items.length } : scene));
     if (current && !saved.some((scene) => scene.id === current.id)) saved.unshift({ id: current.id, name: current.name, itemCount: current.items.length });
     return [
       {
         title: 'Built-in scenes',
-        items: BUILT_IN_SCENES.map((entry) => ({ id: `${BUILT_IN_PREFIX}${entry.id}`, name: entry.name, type: entry.type })),
+        items: [
+          ...BUILT_IN_SCENES.map((entry) => ({ id: `${BUILT_IN_PREFIX}${entry.id}`, name: entry.name, type: entry.type })),
+          ...SCENE_FILES.map((entry) => ({ id: entry.id, name: entry.name, type: entry.description || 'Scene file · open it to play or change it' })),
+        ],
       },
       {
         title: 'My scenes',
@@ -85,7 +91,8 @@ export class SceneTab {
       if (entry) this.picker.setCurrent({ id: `${BUILT_IN_PREFIX}${entry.id}`, name: entry.name, type: 'Built-in scene · runs in code' });
     } else if (this.source === 'editor' && this.editor.opened) {
       const scene = this.editor.editor.document;
-      this.picker.setCurrent({ id: scene.id, name: scene.name, type: `My scene · ${itemCount(scene.items.length)}` });
+      const kind = isFileScene(scene.id) ? 'Built-in scene' : 'My scene';
+      this.picker.setCurrent({ id: scene.id, name: scene.name, type: `${kind} · ${itemCount(scene.items.length)}` });
     }
   }
 
@@ -150,7 +157,9 @@ export class SceneTab {
     this.picker.root.hidden = false;
     this.refreshSaved();
     const last = lastSceneId() || DEFAULT_SCENE;
-    await this.open(last.startsWith(BUILT_IN_PREFIX) && !getBuiltInScene(last.slice(BUILT_IN_PREFIX.length)) ? DEFAULT_SCENE : last);
+    const gone = (last.startsWith(BUILT_IN_PREFIX) && !getBuiltInScene(last.slice(BUILT_IN_PREFIX.length)))
+      || (isFileScene(last) && !SCENE_FILES.some((entry) => entry.id === last));
+    await this.open(gone ? DEFAULT_SCENE : last);
   }
 
   exit() {

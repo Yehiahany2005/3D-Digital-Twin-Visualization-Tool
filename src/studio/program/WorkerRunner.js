@@ -17,8 +17,8 @@ const LIFT = 0.06;
 // The fork ends stop this far from a pallet before the forks go in, and from an object before
 // a pallet is carried in.
 const CLEARANCE = 0.3;
-// The highest surface a pallet can be put down on (a turntable or a low stand, not a table).
-const MAX_DECK = 0.4;
+// The highest surface a pallet can be put down on (a wrapper's turntable or a low stand, not a table).
+const MAX_DECK = 0.6;
 const SIDES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)];
 
 const yawOf = (heading) => Math.atan2(-heading.z, heading.x);
