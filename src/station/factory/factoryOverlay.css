@@ -1,0 +1,469 @@
+/*
+ * Factory overlay: floating station labels, factory title + KPIs, station focus panels.
+ * Built on the app tokens (--text, --muted, --subtle, --accent). One accent, one radius
+ * scale: surfaces 10px, controls 8px. Motion is transform/opacity only.
+ */
+.fx-overlay {
+  --fx-surface: rgba(22, 25, 29, 0.9);
+  --fx-surface-strong: rgba(26, 30, 35, 0.96);
+  --fx-line: rgba(255, 255, 255, 0.08);
+  --fx-line-strong: rgba(105, 199, 211, 0.55);
+  --fx-shadow: 0 14px 34px -14px rgba(8, 12, 16, 0.6), 0 2px 6px rgba(8, 12, 16, 0.18);
+  --fx-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --fx-radius: 10px;
+  --fx-radius-control: 8px;
+  --fx-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --fx-fast: 180ms;
+  --fx-slow: 320ms;
+
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--text);
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-overlay[hidden] { display: none; }
+
+/* Each anchor is positioned every frame from a projected 3D point (no transition). */
+.fx-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+
+/* Fading information layer. Hidden via Hide UI or by the current view. */
+.fx-info {
+  transition:
+    opacity var(--fx-slow) var(--fx-ease),
+    transform var(--fx-slow) var(--fx-ease),
+    visibility 0s linear 0s;
+}
+
+.fx-info.is-off {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition:
+    opacity var(--fx-fast) var(--fx-ease),
+    transform var(--fx-fast) var(--fx-ease),
+    visibility 0s linear var(--fx-fast);
+}
+
+.fx-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 1.25rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--fx-line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* ---- Factory title + KPI block ------------------------------------------------------ */
+
+.fx-title-block {
+  display: grid;
+  gap: 0.6rem;
+  width: max-content;
+  pointer-events: auto;
+}
+
+.fx-title {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
+  margin: 0 auto;
+  padding: 0.55rem 1.1rem 0.7rem;
+  border: 1px solid var(--fx-line);
+  border-radius: var(--fx-radius);
+  background: var(--fx-surface);
+  box-shadow: var(--fx-shadow), var(--fx-highlight);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    transform var(--fx-fast) var(--fx-ease),
+    border-color var(--fx-fast) var(--fx-ease),
+    background-color var(--fx-fast) var(--fx-ease);
+}
+
+.fx-title-text {
+  font-size: 1.32rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+.fx-title-sub {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+}
+
+/* Accent rule under the title grows on hover. */
+.fx-title::after {
+  content: "";
+  position: absolute;
+  left: 1.1rem;
+  right: 1.1rem;
+  bottom: 0.35rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: scaleX(0.16);
+  transform-origin: center;
+  opacity: 0.7;
+  transition: transform var(--fx-slow) var(--fx-ease), opacity var(--fx-slow) var(--fx-ease);
+}
+
+.fx-title:hover,
+.fx-title:focus-visible {
+  border-color: var(--fx-line-strong);
+  background: var(--fx-surface-strong);
+  transform: translateY(-2px);
+}
+
+.fx-title:hover::after,
+.fx-title:focus-visible::after {
+  transform: scaleX(1);
+  opacity: 1;
+}
+
+.fx-title:active { transform: translateY(0) scale(0.99); }
+
+.fx-kpi-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 0.15rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.fx-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(9.25rem, 1fr));
+  gap: 0.5rem;
+}
+
+.fx-kpi-grid--2 { grid-template-columns: repeat(2, minmax(9.75rem, 1fr)); }
+
+.fx-kpi {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.7rem 0.85rem 0.75rem;
+  border: 1px solid var(--fx-line);
+  border-radius: var(--fx-radius);
+  background: var(--fx-surface);
+  box-shadow: var(--fx-shadow), var(--fx-highlight);
+}
+
+.fx-kpi-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.fx-kpi-value {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-size: 1.55rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.fx-kpi-unit {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.fx-kpi-meta {
+  color: var(--subtle);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.fx-kpi-meta strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---- Station labels ------------------------------------------------------------------- */
+
+.fx-station-anchor {
+  display: grid;
+  justify-items: center;
+}
+
+.fx-station {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.6rem;
+  min-width: 12.5rem;
+  max-width: 17rem;
+  padding: 0.55rem 0.8rem 0.55rem 0.55rem;
+  border: 1px solid var(--fx-line);
+  border-radius: var(--fx-radius);
+  background: var(--fx-surface);
+  box-shadow: var(--fx-shadow), var(--fx-highlight);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    opacity var(--fx-slow) var(--fx-ease),
+    transform var(--fx-fast) var(--fx-ease),
+    border-color var(--fx-fast) var(--fx-ease),
+    background-color var(--fx-fast) var(--fx-ease),
+    visibility 0s linear 0s;
+}
+
+.fx-station-index {
+  display: grid;
+  place-items: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border: 1px solid var(--fx-line-strong);
+  border-radius: var(--fx-radius-control);
+  background: rgba(105, 199, 211, 0.1);
+  color: var(--accent);
+  font-size: 0.86rem;
+  font-weight: 700;
+  transition: background-color var(--fx-fast) var(--fx-ease), color var(--fx-fast) var(--fx-ease);
+}
+
+.fx-station-body {
+  display: grid;
+  min-width: 0;
+}
+
+.fx-station-kicker {
+  color: var(--subtle);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.fx-station-name {
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+/* Detail row expands on hover / focus. */
+.fx-station-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--fx-slow) var(--fx-ease), opacity var(--fx-fast) var(--fx-ease);
+}
+
+.fx-station-reveal > span {
+  display: grid;
+  gap: 0.35rem;
+  overflow: hidden;
+}
+
+.fx-station-summary {
+  padding-top: 0.3rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.fx-station-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--accent);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.fx-station-cta svg { width: 0.85rem; height: 0.85rem; }
+
+.fx-station.is-hot,
+.fx-station:focus-visible {
+  border-color: var(--fx-line-strong);
+  background: var(--fx-surface-strong);
+  transform: translateY(-3px);
+}
+
+.fx-station.is-hot .fx-station-index,
+.fx-station:focus-visible .fx-station-index {
+  background: var(--accent);
+  color: #10181b;
+}
+
+.fx-station.is-hot .fx-station-reveal,
+.fx-station:focus-visible .fx-station-reveal {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.fx-station:active { transform: translateY(-1px) scale(0.99); }
+
+/* Leader line from the label down to the station. */
+.fx-stem {
+  width: 1px;
+  height: 1.6rem;
+  background: linear-gradient(rgba(105, 199, 211, 0.7), rgba(105, 199, 211, 0));
+  transition: opacity var(--fx-slow) var(--fx-ease), visibility 0s linear 0s;
+}
+
+.fx-stem.is-off {
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity var(--fx-fast) var(--fx-ease), visibility 0s linear var(--fx-fast);
+}
+
+/* ---- Station focus panel (zoomed view) -------------------------------------------- */
+
+.fx-focus {
+  display: grid;
+  gap: 0.55rem;
+  width: max-content;
+  max-width: min(27rem, calc(100vw - 2rem));
+  pointer-events: auto;
+}
+
+.fx-focus-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.6rem 0.75rem 0.6rem 0.6rem;
+  border: 1px solid var(--fx-line-strong);
+  border-radius: var(--fx-radius);
+  background: var(--fx-surface-strong);
+  box-shadow: var(--fx-shadow), var(--fx-highlight);
+}
+
+.fx-focus-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.fx-focus-head p {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.fx-focus-live {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--fx-line);
+  border-radius: var(--fx-radius);
+  background: var(--fx-surface);
+  font-size: 0.74rem;
+}
+
+.fx-focus-live span:first-child {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.fx-focus-live span:last-child {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Viewport controls ------------------------------------------------------------- */
+
+.fx-btn {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 2.1rem;
+  padding: 0 0.8rem 0 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--fx-radius-control);
+  background: var(--fx-surface-strong);
+  box-shadow: var(--fx-shadow);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    transform var(--fx-fast) var(--fx-ease),
+    border-color var(--fx-fast) var(--fx-ease),
+    opacity var(--fx-slow) var(--fx-ease),
+    visibility 0s linear 0s;
+}
+
+.fx-btn svg { width: 1rem; height: 1rem; }
+
+.fx-btn:hover,
+.fx-btn:focus-visible { border-color: var(--fx-line-strong); }
+
+.fx-btn:active { transform: translateY(1px); }
+
+.fx-btn kbd {
+  padding: 0 0.3rem;
+  border: 1px solid var(--fx-line);
+  border-radius: 4px;
+  color: var(--subtle);
+  font: inherit;
+  font-size: 0.66rem;
+}
+
+.fx-btn.is-off {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--fx-fast) var(--fx-ease), visibility 0s linear var(--fx-fast);
+}
+
+.fx-back { top: 0.85rem; left: 0.85rem; }
+.fx-toggle { right: 0.85rem; bottom: 0.85rem; }
+
+.fx-overlay :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-overlay *,
+  .fx-overlay *::after {
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .fx-kpi-grid { grid-template-columns: repeat(2, minmax(8.5rem, 1fr)); }
+  .fx-title-text { font-size: 1.1rem; }
+}

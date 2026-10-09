@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { createProceduralConveyor } from '../../station/ProceduralConveyor.js';
-import { createProceduralBoxSourceMachine } from '../../station/ProceduralBoxSourceMachine.js';
+import { createProceduralConveyor } from '../../station/station-3/ProceduralConveyor.js';
+import { createProceduralBoxSourceMachine } from '../../station/station-3/ProceduralBoxSourceMachine.js';
 import { anchor, box, collider, disposeObject, number, standard, toggle } from './shared.js';
 
 const BELT_THICKNESS = 0.08;

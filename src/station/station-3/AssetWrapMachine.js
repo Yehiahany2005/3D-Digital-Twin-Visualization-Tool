@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { ModelLoader } from '../loaders/ModelLoader.js';
-import { downloadModel } from '../loaders/download.js';
-import wrappingUrl from '../assets/Wrapping.STEP?url';
+import { ModelLoader } from '../../loaders/ModelLoader.js';
+import { downloadModel } from '../../loaders/download.js';
+import wrappingUrl from '../../assets/Wrapping.STEP?url';
 
 /** Names from the Wrapping.STEP assembly (SolidWorks Assem1). */
 const FRAME_NAMES = new Set(['wraping machine', 'Part1']);

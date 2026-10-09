@@ -59,7 +59,7 @@
 | Poses / sequences | `MotionPlayer.js`, `AnimationEditorPanel.js` | "Save pose" captures current joint values, so a reached pose can be saved for free. |
 | Picking | `src/scene/RigHelpers.js` `ViewportPicker` | Click-vs-drag detection (5 px), raycast against one target object. **Only one handler at a time** (`setHandler`), so Reach mode must coordinate with Joint Setup's picking. Hits include `face.normal`, usable for "face the surface". |
 | Highlights / gizmo | `RigHelpers.js` | `PartHighlight` (selection/linked/preview layers, dimming), `JointGizmo` (arrow, ring, target marker, dashed link line). Reusable for the IK target marker. |
-| Station IK (existing) | `src/station/StationCycle.js` `solveTarget` | Finite-difference DLS, hardcoded to the ABB station gripper. **To be replaced** by the generic solver later. |
+| Station IK (existing) | `src/station/station-3/StationCycle.js` `solveTarget` | Finite-difference DLS, hardcoded to the ABB station gripper. **To be replaced** by the generic solver later. |
 | Persistence | `src/motion/RigStore.js` (localStorage), `src/assets/ImportStore.js` (IndexedDB) | The tool definition will be saved inside the rig definition, so it persists and exports with `.rig.json`. |
 | Asset structure | `src/scene/AssetManager.js` | `root` (base motion + unit scale) → `orientation` (up axis) → `content` (file). World units are **metres**. |
 | Header asset picker | `src/ui/AssetSelectionPanel.js` | Done in preparation (see §11). |

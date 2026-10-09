@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneWithSkeletons } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { createProceduralWorker } from '../../station/ProceduralWorker.js';
+import { createProceduralWorker } from '../../station/station-3/ProceduralWorker.js';
 import { downloadModel } from '../../loaders/download.js';
 import personUrl from '../../assets/people/KayKit_Rogue.glb?url';
 import { choice, disposeObject, number, toggle } from './shared.js';
