@@ -22,6 +22,46 @@ function loadRapier() {
 const v = (vector) => ({ x: vector.x, y: vector.y, z: vector.z });
 const q = (quaternion) => ({ x: quaternion.x, y: quaternion.y, z: quaternion.z, w: quaternion.w });
 
+// The parts of an item that are drawn: its own meshes, not those of items mounted on it, nor
+// helpers like the selection tint.
+export function drawnMeshes(root) {
+  const meshes = [];
+  const walk = (object) => {
+    if (!object.visible || object.userData.helper || object.userData.simulated) return;
+    if (object !== root && object.userData.sceneItemId) return;
+    if (object.isMesh) meshes.push(object);
+    object.children.forEach(walk);
+  };
+  walk(root);
+  return meshes;
+}
+
+// A part's shape for the physics, in its own frame and at its size in the scene (its body carries
+// its position and rotation): the exact triangles, so boxes touch the part itself and pass
+// through the gaps between parts. Skinned parts (animated people) bend, so they use a box.
+function partShape(RAPIER, mesh, scale) {
+  const geometry = mesh.geometry;
+  const positions = geometry?.attributes.position;
+  if (!positions || positions.count < 3) return null;
+  if (mesh.isSkinnedMesh) {
+    geometry.computeBoundingBox();
+    const size = geometry.boundingBox.getSize(new THREE.Vector3()).multiply(scale);
+    const center = geometry.boundingBox.getCenter(new THREE.Vector3()).multiply(scale);
+    return RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2).setTranslation(center.x, center.y, center.z);
+  }
+  const vertices = new Float32Array(positions.count * 3);
+  for (let index = 0; index < positions.count; index += 1) {
+    vertices[index * 3] = positions.getX(index) * scale.x;
+    vertices[index * 3 + 1] = positions.getY(index) * scale.y;
+    vertices[index * 3 + 2] = positions.getZ(index) * scale.z;
+  }
+  const indices = geometry.index
+    ? Uint32Array.from(geometry.index.array)
+    : Uint32Array.from({ length: positions.count - (positions.count % 3) }, (_, index) => index);
+  if (indices.length < 3) return null;
+  return RAPIER.ColliderDesc.trimesh(vertices, indices);
+}
+
 // The simulation while a scene plays (like Roblox's Play): gravity, boxes that fall, stack and
 // ride conveyors, box sources that send boxes out, ends of line that take them away. Nothing it
 // does is saved: stopping puts every item back where the scene document says it is.
@@ -59,34 +99,38 @@ export class Simulation {
     this.running = true;
   }
 
-  // Colliders of an item in its own frame: a component's boxes, or (for a model marked solid)
-  // its bounding box.
-  collidersOf(item, runtime) {
-    if (runtime.kind === 'component') return runtime.component.colliders || [];
-    if (runtime.kind !== 'model' || !item.solid) return [];
-    const root = runtime.root;
-    const saved = { parent: root.parent, matrix: root.matrix.clone() };
-    root.removeFromParent();
-    root.position.set(0, 0, 0);
-    root.quaternion.identity();
-    root.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(root);
-    saved.matrix.decompose(root.position, root.quaternion, root.scale);
-    saved.parent.add(root);
-    root.updateMatrixWorld(true);
-    if (box.isEmpty()) return [];
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-    return [{ shape: 'box', size: size.toArray(), position: center.toArray() }];
+  // A model marked solid: every drawn part is a collider of its exact shape. Parts that can move
+  // (on a joint, in an animation, or on something that moves) follow their part every step.
+  addSolidModel(item, runtime) {
+    const { RAPIER, world } = this;
+    const asset = runtime.asset;
+    const moving = Boolean(item.mount || item.attach || asset?.rig?.joints.length || asset?.animations?.length);
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    runtime.root.updateMatrixWorld(true);
+    drawnMeshes(runtime.root).forEach((mesh) => {
+      mesh.matrixWorld.decompose(position, quaternion, scale);
+      const shape = partShape(RAPIER, mesh, scale);
+      if (!shape) return;
+      const desc = moving ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.fixed();
+      const body = world.createRigidBody(desc.setTranslation(position.x, position.y, position.z).setRotation(q(quaternion)));
+      world.createCollider(shape.setFriction(FRICTION), body);
+      this.bodies.push({ item, runtime, body, type: moving ? 'kinematic' : 'static', object: mesh });
+    });
   }
 
   addItem(item, runtime) {
+    if (runtime.kind === 'model') {
+      if (item.solid) this.addSolidModel(item, runtime);
+      return;
+    }
     const { RAPIER, world } = this;
     const root = runtime.root;
     const component = runtime.component;
     const linked = Boolean(item.mount || item.attach);
-    let type = runtime.kind === 'component' ? component.body || 'none' : (item.solid ? 'static' : 'none');
-    const colliders = this.collidersOf(item, runtime);
+    let type = component?.body || 'none';
+    const colliders = runtime.kind === 'component' ? component.colliders || [] : [];
     // Linked items (a box on a gripper, a fixture on a robot) follow what they hang off.
     if (linked && type !== 'none') type = 'kinematic';
 
@@ -214,12 +258,17 @@ export class Simulation {
           source.sent += 1;
         }
       });
-      // Linked bodies follow their parents (a moving robot arm pushes boxes).
-      this.bodies.forEach(({ type, body, runtime }) => {
+      // Moving parts and linked items follow where they are drawn (a robot arm pushes boxes).
+      const position = new THREE.Vector3();
+      const quaternion = new THREE.Quaternion();
+      const scale = new THREE.Vector3();
+      this.bodies.forEach(({ type, body, runtime, object }) => {
         if (type !== 'kinematic') return;
-        runtime.root.updateMatrixWorld(true);
-        body.setNextKinematicTranslation(v(runtime.root.getWorldPosition(new THREE.Vector3())));
-        body.setNextKinematicRotation(q(runtime.root.getWorldQuaternion(new THREE.Quaternion())));
+        const target = object || runtime.root;
+        target.updateWorldMatrix(true, false);
+        target.matrixWorld.decompose(position, quaternion, scale);
+        body.setNextKinematicTranslation(v(position));
+        body.setNextKinematicRotation(q(quaternion));
       });
       this.driveBelts();
       this.world.step();
@@ -262,6 +311,6 @@ export function describeBody(item, runtime) {
     if (body === 'static') return 'Boxes rest on it and bump into it when playing.';
     return null;
   }
-  return item.solid ? 'Solid when playing: boxes bump into its outline.' : null;
+  return item.solid ? 'Solid when playing: boxes bump into its actual shape.' : null;
 }
 

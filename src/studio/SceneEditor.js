@@ -614,10 +614,10 @@ export class SceneEditor {
   // Why the selected item can't be moved with the gizmo right now, or null.
   moveBlocker(item = this.selectedItem) {
     if (!item) return 'Nothing selected.';
-    if (item.locked) return `"${item.name}" is locked.`;
-    if (item.mount) return `"${item.name}" is mounted; unmount it to move it on its own.`;
-    if (item.attach) return `"${item.name}" follows another item; detach it to move it on its own.`;
-    if (this.playing) return 'Stop the simulation to move things.';
+    if (item.locked) return `${item.name} is locked: click the padlock to move it again.`;
+    if (item.mount) return `${item.name} is on a robot: "Take off the robot" under Attach to move it on its own.`;
+    if (item.attach) return `${item.name} moves with another object: "Stop moving with it" under Attach to move it on its own.`;
+    if (this.playing) return 'Stop playing to move things.';
     return null;
   }
 
@@ -675,10 +675,18 @@ export class SceneEditor {
     };
   }
 
+  // Whether the selection may move; if not, says why.
+  canMove(item) {
+    if (!item) return false;
+    const blocker = this.moveBlocker(item);
+    if (blocker) this.emit('status', blocker);
+    return !blocker;
+  }
+
   // Nudges the selection by the snap size (arrow keys) or turns it (R).
   nudge(dx, dz) {
     const item = this.selectedItem;
-    if (!item || this.moveBlocker(item)) return;
+    if (!this.canMove(item)) return;
     const step = this.snap > 0 ? this.snap : 0.05;
     const position = [item.position[0] + dx * step, item.position[1], item.position[2] + dz * step].map((value) => round(value));
     this.updateItem(item.id, { position }, `Move ${item.name}`);
@@ -686,7 +694,7 @@ export class SceneEditor {
 
   turn(degrees) {
     const item = this.selectedItem;
-    if (!item || this.moveBlocker(item)) return;
+    if (!this.canMove(item)) return;
     const yaw = ((item.rotation[1] + degrees + 540) % 360) - 180;
     this.updateItem(item.id, { rotation: [item.rotation[0], round(yaw, 3), item.rotation[2]] }, `Turn ${item.name}`);
   }

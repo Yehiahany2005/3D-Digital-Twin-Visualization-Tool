@@ -278,30 +278,27 @@
               </details>
             </div>
 
-            <div class="pane-section" data-scene-source="editor" hidden>
-              <details class="sidebar-card scene-file-card" open>
-                <summary><span class="card-title"><i data-lucide="layout-grid" aria-hidden="true"></i>Scene</span><span class="summary-chevron" aria-hidden="true"></span></summary>
-                <div class="card-content scene-file-content">
-                  <label class="editor-field">Name<input type="text" data-scene-name autocomplete="off" /></label>
-                  <div class="button-row">
-                    <button type="button" data-scene-export title="Save this scene and the imported models it uses as one .dtscene file, to keep or send">Export</button>
-                    <button type="button" data-scene-delete title="Delete this scene from this browser">Delete</button>
-                  </div>
-                  <p class="editor-hint" data-scene-save-state>Changes are saved in this browser as you go.</p>
+            <div class="pane-section scene-editor-pane" data-scene-source="editor" hidden>
+              <section class="sidebar-card scene-objects-card" aria-label="Objects in this scene">
+                <div class="scene-name-row">
+                  <input type="text" class="scene-name-input" data-scene-name autocomplete="off" aria-label="Scene name" title="Scene name: click to rename" />
+                  <button type="button" class="icon-button" data-scene-export title="Export: save this scene and the imported models it uses as one .dtscene file, to keep or send"><i data-lucide="download" aria-hidden="true"></i></button>
+                  <button type="button" class="icon-button is-danger" data-scene-delete title="Delete this scene from this browser"><i data-lucide="trash-2" aria-hidden="true"></i></button>
                 </div>
-              </details>
-
-              <details class="sidebar-card scene-explorer-card" open>
-                <summary><span class="card-title"><i data-lucide="list-tree" aria-hidden="true"></i>Explorer</span><span class="editor-count" data-explorer-count></span><span class="summary-chevron" aria-hidden="true"></span></summary>
-                <div class="card-content">
-                  <ul class="explorer-list" data-explorer-list role="tree" aria-label="Items in the scene"></ul>
+                <p class="scene-save-state" data-scene-save-state>Saved automatically</p>
+                <div class="panel-head">
+                  <span class="panel-title"><i data-lucide="list-tree" aria-hidden="true"></i>Objects</span>
+                  <span class="editor-count" data-explorer-count></span>
                 </div>
-              </details>
+                <ul class="explorer-list" data-explorer-list role="tree" aria-label="Objects in the scene"></ul>
+              </section>
 
-              <details class="sidebar-card scene-properties-card" open>
-                <summary><span class="card-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Properties</span><span class="summary-chevron" aria-hidden="true"></span></summary>
-                <div class="card-content" data-properties></div>
-              </details>
+              <section class="sidebar-card scene-selected-card" aria-label="Selected object">
+                <div class="panel-head">
+                  <span class="panel-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Selected</span>
+                </div>
+                <div class="scene-selected-body" data-properties></div>
+              </section>
             </div>
           </div>
         </aside>
@@ -355,14 +352,15 @@
           </div>
 
           <div class="scene-toolbar" data-scene-toolbar hidden>
-            <button type="button" class="scene-add-button" data-scene-add aria-expanded="false" title="Add models and parts (A)"><i data-lucide="plus" aria-hidden="true"></i>Add</button>
+            <button type="button" class="scene-add-button" data-scene-add aria-expanded="false" title="Add robots, conveyors and other parts (A)"><i data-lucide="plus" aria-hidden="true"></i>Add</button>
+            <span class="toolbar-divider" aria-hidden="true"></span>
             <div class="scene-tools" role="group" aria-label="Tool">
-              <button type="button" data-scene-tool="select" title="Select (Q)"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i></button>
-              <button type="button" data-scene-tool="move" title="Move (W)"><i data-lucide="move" aria-hidden="true"></i></button>
-              <button type="button" data-scene-tool="rotate" title="Turn (E)"><i data-lucide="rotate-cw" aria-hidden="true"></i></button>
-              <button type="button" class="scene-free-rotate" data-scene-free-rotate aria-pressed="false" title="Free rotation: tilt about all three axes instead of only turning on the floor (T)"><i data-lucide="rotate-3d" aria-hidden="true"></i>3D</button>
+              <button type="button" data-scene-tool="select" title="Select: click objects without moving them (Q)"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i><span class="tool-label">Select</span></button>
+              <button type="button" data-scene-tool="move" title="Move: drag the arrows to slide the selected object (W)"><i data-lucide="move" aria-hidden="true"></i><span class="tool-label">Move</span></button>
+              <button type="button" data-scene-tool="rotate" title="Turn: drag the ring to turn the selected object on the floor (E)"><i data-lucide="rotate-cw" aria-hidden="true"></i><span class="tool-label">Turn</span></button>
+              <button type="button" class="scene-free-rotate" data-scene-free-rotate aria-pressed="false" title="Tilt: let Turn tip objects over in any direction, not only spin them on the floor (T)"><i data-lucide="rotate-3d" aria-hidden="true"></i><span class="tool-label">Tilt</span></button>
             </div>
-            <label class="scene-snap" title="Moves snap to this step; turns snap to 15°">Snap
+            <label class="scene-snap" title="Moves jump in steps of this size, and turns in steps of 15°. Hold Alt while dragging to move freely.">Snap
               <select data-scene-snap>
                 <option value="0">Off</option>
                 <option value="0.01">1 cm</option>
@@ -373,15 +371,57 @@
                 <option value="1">1 m</option>
               </select>
             </label>
-            <div class="scene-play">
-              <button type="button" class="scene-play-button" data-scene-play title="Play: gravity, conveyors and box sources run. Stop puts everything back."><i data-lucide="play" aria-hidden="true"></i><span data-scene-play-label>Play</span></button>
-              <span class="scene-play-status" data-scene-play-status hidden></span>
-            </div>
             <div class="scene-history" role="group" aria-label="History">
               <button type="button" data-scene-undo title="Undo (Ctrl+Z)"><i data-lucide="undo-2" aria-hidden="true"></i></button>
               <button type="button" data-scene-redo title="Redo (Ctrl+Shift+Z)"><i data-lucide="redo-2" aria-hidden="true"></i></button>
             </div>
+            <span class="toolbar-divider" aria-hidden="true"></span>
+            <div class="scene-play">
+              <button type="button" class="scene-play-button" data-scene-play title="Play: gravity, conveyors and box sources run. Stop puts everything back (Ctrl+Enter)"><i data-lucide="play" class="when-stopped" aria-hidden="true"></i><i data-lucide="square" class="when-playing" aria-hidden="true"></i><span data-scene-play-label>Play</span></button>
+              <span class="scene-play-status" data-scene-play-status hidden></span>
+            </div>
+            <button type="button" class="scene-help-button" data-scene-help aria-expanded="false" aria-controls="scene-help" title="Mouse controls and keyboard shortcuts (?)"><i data-lucide="circle-help" aria-hidden="true"></i></button>
           </div>
+
+          <div class="scene-help" id="scene-help" data-scene-help-panel role="dialog" aria-label="Controls and shortcuts" hidden>
+            <div class="scene-help-head">
+              <strong>Controls</strong>
+              <button type="button" class="icon-button" data-scene-help-close aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
+            </div>
+            <dl class="scene-help-list">
+              <div><dt>Look around</dt><dd>Drag empty space</dd></div>
+              <div><dt>Slide the view</dt><dd>Right-drag</dd></div>
+              <div><dt>Zoom</dt><dd>Mouse wheel</dd></div>
+              <div><dt>Select</dt><dd>Click an object</dd></div>
+              <div><dt>Frame selected</dt><dd><kbd>F</kbd> or double-click in Objects</dd></div>
+            </dl>
+            <strong class="scene-help-subtitle">Keys</strong>
+            <dl class="scene-help-list">
+              <div><dt>Add objects</dt><dd><kbd>A</kbd></dd></div>
+              <div><dt>Select · Move · Turn</dt><dd><kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd></dd></div>
+              <div><dt>Turn 90°</dt><dd><kbd>R</kbd> (<kbd>Shift</kbd>+<kbd>R</kbd> back)</dd></div>
+              <div><dt>Tilt on/off</dt><dd><kbd>T</kbd></dd></div>
+              <div><dt>Nudge one snap step</dt><dd>Arrow keys</dd></div>
+              <div><dt>Move without snapping</dt><dd>Hold <kbd>Alt</kbd> while dragging</dd></div>
+              <div><dt>Duplicate</dt><dd><kbd>Ctrl</kbd>+<kbd>D</kbd></dd></div>
+              <div><dt>Delete</dt><dd><kbd>Delete</kbd></dd></div>
+              <div><dt>Undo · Redo</dt><dd><kbd>Ctrl</kbd>+<kbd>Z</kbd> · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></dd></div>
+              <div><dt>Play · Stop</dt><dd><kbd>Ctrl</kbd>+<kbd>Enter</kbd></dd></div>
+              <div><dt>Deselect · cancel</dt><dd><kbd>Esc</kbd></dd></div>
+            </dl>
+          </div>
+
+          <div class="scene-empty" data-scene-empty hidden>
+            <strong>Build your scene</strong>
+            <ol>
+              <li><b>Add</b> a robot, a conveyor or any part, then click on the floor to place it.</li>
+              <li><b>Drag the arrows</b> to move it. Drag empty space to look around.</li>
+              <li>Press <b>Play</b> to watch conveyors run and boxes fall.</li>
+            </ol>
+            <button type="button" class="primary-button" data-scene-empty-add><i data-lucide="plus" aria-hidden="true"></i>Add your first object</button>
+          </div>
+
+          <p class="scene-hint" data-scene-hint hidden></p>
 
           <div class="add-drawer" data-add-drawer hidden>
             <div class="add-drawer-head">
@@ -391,7 +431,7 @@
               <button type="button" class="add-close" data-add-close aria-label="Close">✕</button>
             </div>
             <div class="add-grid" data-add-grid></div>
-            <p class="add-hint" data-add-hint>Click an item, then click on the floor to place it (R turns it, Esc cancels, Shift keeps placing). You can also drag it onto the floor.</p>
+            <p class="add-hint" data-add-hint>Click something, then click on the floor to place it. Or drag it onto the floor.</p>
             <input type="file" data-add-import-input hidden />
           </div>
         </section>

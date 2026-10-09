@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import {
   Box,
+  CircleHelp,
   Clapperboard,
   Cpu,
   Crosshair,
+  Download,
   Factory,
   LayoutGrid,
   ListTree,
@@ -16,10 +18,13 @@ import {
   Rotate3d,
   RotateCw,
   SlidersHorizontal,
+  Square,
   TerminalSquare,
+  Trash2,
   Undo2,
   Upload,
   Wrench,
+  X,
   createIcons,
 } from 'lucide';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -29,13 +34,14 @@ import { LightingManager } from './scene/LightingManager.js';
 import { RendererManager } from './scene/RendererManager.js';
 import { DigitalTwinViewManager } from './scene/DigitalTwinViewManager.js';
 import { fitEnvironment } from './scene/fitEnvironment.js';
-import { ReachMarker, SelectionOutline, ToolMarkers, ViewportPicker } from './scene/RigHelpers.js';
+import { ReachMarker, ToolMarkers, ViewportPicker } from './scene/RigHelpers.js';
 import { ReachPanel } from './ui/ReachPanel.js';
 import { StatusMessage } from './ui/StatusMessage.js';
 import { listStoredImports } from './assets/ImportStore.js';
 import { getAssetConfig, registerImportedAsset } from './assets/AssetRegistry.js';
 import { ModelTemplates } from './studio/ModelTemplates.js';
 import { SceneMode } from './studio/SceneMode.js';
+import { SelectionHighlight } from './studio/SelectionHighlight.js';
 import { lastMode, rememberLastMode } from './studio/SceneStore.js';
 import { MachineTab } from './app/MachineTab.js';
 import { SceneTab } from './app/SceneTab.js';
@@ -47,7 +53,7 @@ import './style.css';
 // This file builds the shared view, switches tabs and runs the frame loop. Each tab's exit()
 // puts away everything it owns, so nothing of one tab shows or reacts in the other.
 
-createIcons({ icons: { Box, Clapperboard, Cpu, Crosshair, Factory, LayoutGrid, ListTree, MousePointer2, Move, Play, PlayCircle, Plus, Redo2, Rotate3d, RotateCw, SlidersHorizontal, TerminalSquare, Undo2, Upload, Wrench } });
+createIcons({ icons: { Box, CircleHelp, Clapperboard, Cpu, Crosshair, Download, Factory, LayoutGrid, ListTree, MousePointer2, Move, Play, PlayCircle, Plus, Redo2, Rotate3d, RotateCw, SlidersHorizontal, Square, TerminalSquare, Trash2, Undo2, Upload, Wrench, X } });
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -169,7 +175,7 @@ const sceneEditor = new SceneMode({
   controls,
   renderer: rendererManager.renderer,
   picker,
-  outline: new SelectionOutline(sceneManager.scene),
+  outline: new SelectionHighlight(),
   reachPanel: reach,
   templates,
   ui: {
@@ -182,6 +188,12 @@ const sceneEditor = new SceneMode({
     playLabel: $('[data-scene-play-label]'),
     freeRotate: $('[data-scene-free-rotate]'),
     playStatus: $('[data-scene-play-status]'),
+    help: $('[data-scene-help]'),
+    helpPanel: $('[data-scene-help-panel]'),
+    helpClose: $('[data-scene-help-close]'),
+    empty: $('[data-scene-empty]'),
+    emptyAdd: $('[data-scene-empty-add]'),
+    hint: $('[data-scene-hint]'),
     addButton: $('[data-scene-add]'),
     drawer: $('[data-add-drawer]'),
     explorerList: $('[data-explorer-list]'),

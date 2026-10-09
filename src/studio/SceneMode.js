@@ -15,6 +15,7 @@ import { ExplorerPanel } from './ui/ExplorerPanel.js';
 import { PropertiesPanel } from './ui/PropertiesPanel.js';
 import { AddDrawer } from './ui/AddDrawer.js';
 import { ThumbnailRenderer } from './thumbnails.js';
+import { SelectionHighlight } from './SelectionHighlight.js';
 
 const SAVE_DELAY_MS = 600;
 const POSE_CHECK_MS = 3000;
@@ -73,11 +74,11 @@ export class SceneMode {
       describeSource: (item, runtime) => this.describeSource(item, runtime),
       onEditInMachine: (item) => this.editInMachine(item),
       onRelink: (item) => this.relink(item),
-      onAdd: () => this.drawer.setOpen(true),
+      iconFor: (item, runtime) => this.iconFor(item, runtime),
       extraSections: [
         (item, runtime, panel) => this.paramsSection(item, runtime, panel),
-        (item, runtime) => this.connectionsSection(item, runtime),
-        (item, runtime) => this.physicsSection(item, runtime),
+        (item, runtime, panel) => this.connectionsSection(item, runtime, panel),
+        (item, runtime, panel) => this.physicsSection(item, runtime, panel),
       ],
     });
     this.drawer = new AddDrawer({
@@ -92,7 +93,10 @@ export class SceneMode {
       preview: (entry) => this.preview(entry),
       place: (entry, placement) => this.place(entry, placement),
       onImport: (file) => this.importFile(file),
-      onOpenChange: (open) => open && this.loadThumbnails(),
+      onOpenChange: (open) => {
+        if (open) this.loadThumbnails();
+        this.updateGuides();
+      },
     });
 
     this.editor.onChange((type, detail) => {
@@ -100,9 +104,14 @@ export class SceneMode {
         this.scheduleSave();
         this.updateTitle();
         this.updateHistoryButtons();
+        this.updateGuides();
       }
       if (type === 'history') this.updateHistoryButtons();
-      if (type === 'selection') this.bindReach();
+      if (type === 'selection') {
+        if (this.attachPick && this.attachPick.item.id !== this.editor.selectedId) this.endAttachPick();
+        this.bindReach();
+        this.updateGuides();
+      }
       if (type === 'item-ready') {
         if (detail?.id === this.editor.selectedId) this.bindReach();
         this.environmentChanged();
@@ -114,6 +123,7 @@ export class SceneMode {
     this.bindToolbar();
     this.bindFileControls();
     this.bindKeys();
+    this.bindGuides();
   }
 
   // ---- Models, components and the Add drawer -----------------------------------------------------
@@ -275,20 +285,16 @@ export class SceneMode {
     input.click();
   }
 
-  // Properties of a catalog component (length, speed…). Changing one rebuilds the component.
+  // Settings of a catalog part (length, speed…). Changing one rebuilds the part.
   paramsSection(item, runtime, panel) {
     if (item.source.kind !== 'catalog') return null;
     const definition = getComponent(item.source.id);
     const specs = Object.entries(definition?.params || {});
     if (!specs.length) return null;
-    const node = document.createElement('section');
-    node.className = 'editor-section';
-    const title = document.createElement('span');
-    title.className = 'editor-section-title';
-    title.textContent = 'Settings';
-    node.append(title);
+    const { node, body } = panel.group('settings', 'Settings');
     const grid = document.createElement('div');
     grid.className = 'placement-fields';
+    const checks = [];
     const current = () => resolveParams(definition, this.editor.item(item.id)?.params);
     const write = (key, value) => {
       const params = { ...(this.editor.item(item.id).params || {}), [key]: value };
@@ -309,7 +315,7 @@ export class SceneMode {
         show();
         panel.fields.push(show);
         wrapper.append(input, ` ${spec.label}`);
-        node.append(wrapper);
+        checks.push(wrapper);
       } else {
         const select = document.createElement('select');
         spec.options.forEach((option) => select.append(new Option(option.label, option.value)));
@@ -321,98 +327,102 @@ export class SceneMode {
         grid.append(wrapper);
       }
     });
-    node.insertBefore(grid, node.children[1] || null);
-    if (runtime?.kind === 'loading') node.append(Object.assign(document.createElement('p'), { className: 'editor-hint', textContent: 'Updating…' }));
+    body.append(grid, ...checks);
+    if (runtime?.kind === 'loading') body.append(Object.assign(document.createElement('p'), { className: 'editor-hint', textContent: 'Updating…' }));
     return node;
   }
 
-  // Mounting a tool on a robot, or making an item follow another item (or one robot joint).
-  connectionsSection(item, runtime) {
+  // Putting a tool on a robot, or making an object move along with another one (or one robot joint).
+  connectionsSection(item, runtime, panel) {
     if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing') return null;
     const { editor } = this;
-    const node = document.createElement('section');
-    node.className = 'editor-section';
-    const title = document.createElement('span');
-    title.className = 'editor-section-title';
-    title.textContent = 'Connected to';
-    node.append(title);
-    const hint = (text) => node.append(Object.assign(document.createElement('p'), { className: 'editor-hint', textContent: text }));
+    const linked = Boolean(item.mount || item.attach);
+    const mountAnchor = anchorsOf(runtime).find((anchor) => anchor.type === 'tool-mount');
+    // Open when it matters: the object is attached, or is a tool waiting for a robot.
+    const { node, body } = panel.group(linked || mountAnchor ? 'attach-active' : 'attach', 'Attach', { open: Boolean(linked || mountAnchor) });
+    const hint = (text) => body.append(Object.assign(document.createElement('p'), { className: 'editor-hint', textContent: text }));
     const row = () => {
       const element = document.createElement('div');
       element.className = 'button-row connection-row';
-      node.append(element);
+      body.append(element);
       return element;
     };
     const button = (label, run, title = label) => Object.assign(document.createElement('button'), { type: 'button', textContent: label, title, onclick: run });
 
-    if (item.mount || item.attach) {
+    if (linked) {
       const parent = editor.item(parentOf(item));
       const joint = item.attach?.joint && editor.runtimes.get(item.attach.to)?.asset?.rig?.jointsById.get(item.attach.joint);
       hint(item.mount
-        ? `Mounted on "${parent?.name}": it moves with the robot, and the robot's Reach uses its tip.`
-        : `Follows "${parent?.name}"${joint ? ` › ${joint.name}` : ''}: it moves with it.`);
-      row().append(button(item.mount ? 'Unmount' : 'Detach', () => editor.unlinkItem(item.id), 'Leave it where it is, on its own'));
+        ? `On ${parent?.name}'s tool flange: it moves with the robot, and Reach uses its tip.`
+        : `Moves with ${parent?.name}${joint ? ` (${joint.name})` : ''}.`);
+      row().append(button(item.mount ? 'Take off the robot' : 'Stop moving with it', () => editor.unlinkItem(item.id), 'Leave it where it is, on its own'));
       return node;
     }
 
-    // A tool can be mounted on any machine that has a tool flange (its tool tip set up).
-    const mountAnchor = anchorsOf(runtime).find((anchor) => anchor.type === 'tool-mount');
+    // A tool can go on any robot that has a tool flange (its tool tip set up).
     if (mountAnchor) {
       const robots = editor.items.filter((other) => other.id !== item.id && anchorNamed(editor.runtimes.get(other.id), 'tool'));
       if (robots.length) {
         const select = document.createElement('select');
+        select.setAttribute('aria-label', 'Robot');
         robots.forEach((robot) => select.append(new Option(robot.name, robot.id)));
-        row().append(select, button('Mount', () => editor.mountItem(item.id, select.value, 'tool', mountAnchor.name), 'Put this tool on the robot\'s flange'));
-        hint('Or drag it onto the robot\'s flange: it snaps on.');
+        row().append(select, button('Put on', () => editor.mountItem(item.id, select.value, 'tool', mountAnchor.name), 'Put this tool on the robot\'s flange'));
+        hint('Or drag it onto the end of the robot\'s arm: it snaps on.');
       } else {
-        hint('Place a robot with a tool tip set up, then mount this tool on it.');
+        hint('Add a robot with a tool tip set up, then put this tool on it.');
       }
     }
 
-    // Any item can follow another one, e.g. a camera on a robot arm or a box on a pallet.
+    // Any object can move along with another one (a camera on a robot arm, a box on a pallet):
+    // pick it in the view, or choose the object from a short list, then (for a robot) which part.
     const excluded = dependentsOf(editor.document, item.id);
-    const options = [];
-    editor.items.forEach((other) => {
-      if (other.id === item.id || excluded.has(other.id)) return;
-      options.push({ label: other.name, value: JSON.stringify([other.id, null]) });
-      const rig = editor.runtimes.get(other.id)?.asset?.rig;
-      rig?.joints.filter((joint) => !joint.driven).forEach((joint) => {
-        options.push({ label: `${other.name} › ${joint.name}`, value: JSON.stringify([other.id, joint.id]) });
+    const targets = editor.items.filter((other) => other.id !== item.id && !excluded.has(other.id));
+    if (targets.length) {
+      body.append(Object.assign(document.createElement('span'), { className: 'editor-subtitle', textContent: 'Move along with' }));
+      const pick = button('Pick it in the view', () => this.startAttachPick(item), 'Click the object (or the exact robot part) it should move with');
+      pick.className = 'primary-button';
+      row().append(pick);
+
+      const target = document.createElement('select');
+      target.setAttribute('aria-label', 'Object to move along with');
+      target.append(new Option('…or choose an object', ''), ...targets.map((other) => new Option(other.name, other.id)));
+      const attach = button('Attach', () => editor.attachItem(item.id, target.value, partRow.hidden ? null : part.value || null), 'It keeps its place and moves whenever that object moves');
+      attach.disabled = true;
+      row().append(target, attach);
+
+      // Robots: the whole robot, or one of its arm parts (axes).
+      const part = document.createElement('select');
+      part.setAttribute('aria-label', 'Which part');
+      const partRow = row();
+      partRow.append(part);
+      partRow.hidden = true;
+      target.addEventListener('change', () => {
+        const rig = editor.runtimes.get(target.value)?.asset?.rig;
+        const joints = rig?.joints.filter((joint) => joint.kind === 'joint' && !joint.driven) || [];
+        part.replaceChildren(new Option('The whole robot', ''), ...joints.map((joint) => new Option(`Its ${joint.name}`, joint.id)));
+        partRow.hidden = !joints.length;
+        attach.disabled = !target.value;
       });
-    });
-    if (options.length) {
-      const select = document.createElement('select');
-      select.append(new Option('Follow another item…', ''));
-      options.forEach((option) => select.append(new Option(option.label, option.value)));
-      select.title = 'It stays where it is and moves with what it follows';
-      select.addEventListener('change', () => {
-        if (!select.value) return;
-        const [targetId, jointId] = JSON.parse(select.value);
-        editor.attachItem(item.id, targetId, jointId);
-      });
-      row().append(select);
     }
-    return node.children.length > 1 ? node : null;
+    return body.children.length ? node : null;
   }
 
-  // How the item behaves when the scene plays; models can be made solid.
-  physicsSection(item, runtime) {
+  // How the object behaves when the scene plays; models can be made solid.
+  physicsSection(item, runtime, panel) {
     if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing') return null;
     const text = describeBody(item, runtime);
     if (runtime.kind !== 'model' && !text) return null;
-    const node = document.createElement('section');
-    node.className = 'editor-section';
-    node.append(Object.assign(document.createElement('span'), { className: 'editor-section-title', textContent: 'When playing' }));
+    const { node, body } = panel.group('physics', 'When playing', { open: false });
     if (runtime.kind === 'model') {
       const label = document.createElement('label');
       label.className = 'editor-check';
       const input = Object.assign(document.createElement('input'), { type: 'checkbox', checked: Boolean(item.solid) });
       input.addEventListener('change', () => this.editor.updateItem(item.id, { solid: input.checked || undefined }, `${input.checked ? 'Make' : 'Stop making'} ${item.name} solid`));
-      label.append(input, ' Solid: boxes bump into its outline');
-      label.title = 'Uses the box around the model, so leave it off for robots that reach over things.';
-      node.append(label);
+      label.append(input, ' Solid: boxes bump into it');
+      label.title = 'Boxes collide with its actual shape, part by part (moving parts too), and pass through the gaps between parts.';
+      body.append(label);
     } else {
-      node.append(Object.assign(document.createElement('p'), { className: 'editor-hint', textContent: text }));
+      body.append(Object.assign(document.createElement('p'), { className: 'editor-hint', textContent: text }));
     }
     return node;
   }
@@ -479,6 +489,7 @@ export class SceneMode {
     this.ui.toolbar.classList.toggle('is-playing', playing);
     [this.ui.addButton, this.ui.undo, this.ui.redo, this.ui.freeRotate, ...this.ui.toolButtons].forEach((button) => { button.disabled = playing; });
     if (!playing) this.updateHistoryButtons();
+    this.updateGuides();
   }
 
   startPoseTimer() {
@@ -610,12 +621,14 @@ export class SceneMode {
     try {
       await saveScene(structuredClone(scene));
       this.lastSaved = JSON.stringify(scene.items);
-      this.ui.saveState.textContent = 'Saved in this browser. Export a .dtscene file to keep it safe or send it to someone.';
+      this.ui.saveState.textContent = 'Saved automatically';
+      this.ui.saveState.title = 'Saved in this browser as you go. Export (the download button) makes a .dtscene file to keep it safe or send it to someone.';
       this.ui.saveState.classList.remove('is-error');
       this.onScenesSaved?.();
     } catch (error) {
       console.warn('Scene could not be saved.', error);
-      this.ui.saveState.textContent = "Couldn't save in this browser (it may be out of space). Use Export to keep this scene.";
+      this.ui.saveState.textContent = 'Not saved: the browser is out of space. Use Export to keep it.';
+      this.ui.saveState.title = "Couldn't save in this browser (it may be out of space). Export (the download button) keeps this scene as a file.";
       this.ui.saveState.classList.add('is-error');
     }
   }
@@ -704,6 +717,7 @@ export class SceneMode {
       button.classList.toggle('is-active', active);
       button.setAttribute('aria-pressed', String(active));
     });
+    this.updateGuides();
   }
 
   // Turning on the floor (default) or tilting freely about all three axes.
@@ -712,7 +726,8 @@ export class SceneMode {
     this.ui.freeRotate.setAttribute('aria-pressed', String(free));
     this.ui.freeRotate.classList.toggle('is-active', free);
     if (free) this.setTool('rotate');
-    this.onStatus?.(free ? 'Free rotation: drag any of the three rings, or type Tilt X / Tilt Z in Properties.' : 'Turning only: items stay level and turn on the floor.');
+    this.onStatus?.(free ? 'Tilt on: Turn can now tip objects over in any direction (Tilt X / Tilt Z under Position).' : 'Tilt off: objects stay level and only turn on the floor.');
+    this.updateGuides();
   }
 
   updateHistoryButtons() {
@@ -727,6 +742,16 @@ export class SceneMode {
     document.addEventListener('keydown', (event) => {
       if (!this.active || isTyping(event) || this.drawer.placing) return;
       const { editor } = this;
+      if (event.key === 'Escape' && this.attachPick) {
+        event.preventDefault();
+        this.endAttachPick();
+        return;
+      }
+      if (event.key === '?' || (event.key === 'Escape' && !this.ui.helpPanel.hidden)) {
+        event.preventDefault();
+        this.setHelpOpen(event.key === '?' && this.ui.helpPanel.hidden);
+        return;
+      }
       // While playing only selecting and framing work (and Ctrl+Enter stops).
       if (editor.playing && !['escape', 'f'].includes(event.key.toLowerCase()) && !((event.ctrlKey || event.metaKey) && event.key === 'Enter')) return;
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -759,6 +784,104 @@ export class SceneMode {
       else handled = false;
       if (handled) event.preventDefault();
     });
+  }
+
+  // ---- Attaching by clicking in the view ---------------------------------------------------------
+
+  // The next click in the view chooses what `item` moves along with: an object, or the robot
+  // part (joint) under the pointer. The hint line names it while hovering.
+  startAttachPick(item) {
+    const { editor } = this;
+    const excluded = dependentsOf(editor.document, item.id);
+    const resolve = (hit) => {
+      const targetId = hit && editor.itemIdFor(hit.object);
+      if (!targetId || targetId === item.id || excluded.has(targetId)) return null;
+      const rig = editor.runtimes.get(targetId)?.asset?.rig;
+      let joint = null;
+      for (let current = hit.object; current && !current.userData.sceneItemId && !joint; current = current.parent) {
+        const candidate = current.userData.rigJointId !== undefined && rig?.jointsById.get(current.userData.rigJointId);
+        if (candidate && candidate.kind === 'joint' && !candidate.driven) joint = candidate;
+      }
+      return { target: editor.item(targetId), joint };
+    };
+    // What a click would attach to, tinted amber: the object, or the arm from that joint outward.
+    this.pickHighlight ??= new SelectionHighlight({ color: 0xf2c46d });
+    this.attachPick = { item, label: null };
+    this.picker.setHandler((hit) => {
+      const found = resolve(hit);
+      if (!found) {
+        this.onStatus?.(hit ? 'Pick something else: not the object itself, nor anything that moves with it.' : 'Click an object in the view, or Esc to cancel.');
+        return;
+      }
+      this.endAttachPick();
+      editor.attachItem(item.id, found.target.id, found.joint?.id ?? null);
+    }, () => editor.root, {
+      owner: 'attach',
+      hover: (hit) => {
+        if (!this.attachPick) return;
+        const found = resolve(hit);
+        this.attachPick.label = found ? `${found.target.name}${found.joint ? ` (${found.joint.name})` : ''}` : null;
+        this.pickHighlight.set(found ? [found.joint ? found.joint.group : editor.runtimes.get(found.target.id).root] : []);
+        this.updateGuides();
+      },
+      onRelease: () => this.endAttachPick({ released: true }),
+    });
+    this.updateGuides();
+  }
+
+  endAttachPick({ released = false } = {}) {
+    if (!this.attachPick) return;
+    this.attachPick = null;
+    this.pickHighlight?.clear();
+    if (!released && this.picker.owner === 'attach') this.picker.setHandler(null);
+    this.updateGuides();
+  }
+
+  // ---- Guidance: empty scene card, hint line, help -------------------------------------------------
+
+  bindGuides() {
+    const { ui } = this;
+    ui.emptyAdd.addEventListener('click', () => this.drawer.setOpen(true));
+    ui.help.addEventListener('click', () => this.setHelpOpen(ui.helpPanel.hidden));
+    ui.helpClose.addEventListener('click', () => this.setHelpOpen(false));
+    document.addEventListener('pointerdown', (event) => {
+      if (!ui.helpPanel.hidden && !ui.helpPanel.contains(event.target) && !ui.help.contains(event.target)) this.setHelpOpen(false);
+    });
+  }
+
+  setHelpOpen(open) {
+    this.ui.helpPanel.hidden = !open;
+    this.ui.help.setAttribute('aria-expanded', String(open));
+    this.ui.help.classList.toggle('is-active', open);
+  }
+
+  // An empty scene shows how to start; otherwise one line says what can be done right now.
+  updateGuides() {
+    const { ui, editor } = this;
+    const quiet = !this.active || this.drawer.isOpen;
+    const empty = !editor.items.length;
+    ui.empty.hidden = quiet || !empty || editor.playing;
+    const text = quiet || empty ? '' : this.hintText();
+    ui.hint.hidden = !text;
+    ui.hint.textContent = text;
+  }
+
+  hintText() {
+    const { editor } = this;
+    if (editor.playing) return 'Playing: conveyors run and boxes fall. Stop (Ctrl+Enter) puts everything back.';
+    if (this.attachPick) {
+      const { item, label } = this.attachPick;
+      return `Click what ${item.name} should move with${label ? `: ${label}` : ''} · Esc cancels`;
+    }
+    const item = editor.selectedItem;
+    if (!item) return 'Click an object to select it · drag empty space to look around · A adds more';
+    const blocker = editor.moveBlocker(item);
+    if (blocker) return blocker;
+    if (editor.tool === 'select') return `${item.name} selected · W to move it · E to turn it · F to frame it`;
+    if (editor.tool === 'rotate') {
+      return editor.freeRotation ? `Drag a ring to tip ${item.name} over · T to stop tilting` : `Drag the ring to turn ${item.name} · R turns it 90°`;
+    }
+    return `Drag an arrow to slide ${item.name} · drag a square to slide it flat · R turns it 90° · Delete removes it`;
   }
 
   // ---- Selecting in the 3D view & Reach ------------------------------------------------------------
@@ -846,6 +969,7 @@ export class SceneMode {
     }
     this.bindReach();
     this.startPoseTimer();
+    this.updateGuides();
   }
 
   exit() {
@@ -854,8 +978,10 @@ export class SceneMode {
     this.saveNow();
     clearInterval(this.poseTimer);
     this.active = false;
+    this.endAttachPick();
     this.drawer.setOpen(false);
     this.ui.toolbar.hidden = true;
+    this.setHelpOpen(false);
     this.editor.select(null);
     this.editor.setShown(false);
     this.picker.setDefault(null);
@@ -863,6 +989,7 @@ export class SceneMode {
     this.reachPanel.setHidden(true);
     this.reachPanel.setExtraTargets(null);
     this.editor.runtimes.forEach((runtime) => runtime.asset?.player.stop());
+    this.updateGuides();
   }
 
   updateTitle() {

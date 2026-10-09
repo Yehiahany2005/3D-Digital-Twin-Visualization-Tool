@@ -1,9 +1,9 @@
 import { parentOf } from '../SceneDocument.js';
 import { icon } from './icons.js';
 
-// The scene tree (like Roblox Studio's Explorer): every item, with mounted and attached items
-// nested under what they hang off. Click selects, double-click frames it in the view; the eye
-// hides an item and the lock keeps it from being moved by accident.
+// The scene's objects (like Roblox Studio's Explorer), with mounted and attached ones nested
+// under what they hang off. Click selects, double-click frames it in the view. The eye and
+// padlock show on hover, or stay visible while an object is hidden or locked.
 export class ExplorerPanel {
   constructor({ list, count, editor, onFrame, iconFor }) {
     this.list = list;
@@ -23,7 +23,7 @@ export class ExplorerPanel {
     if (!items.length) {
       const empty = document.createElement('li');
       empty.className = 'empty-state';
-      empty.textContent = 'The scene is empty. Use "Add" above the 3D view to place models and parts.';
+      empty.textContent = 'Nothing here yet. Objects you add are listed here.';
       this.list.replaceChildren(empty);
       return;
     }
