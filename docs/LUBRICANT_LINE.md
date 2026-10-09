@@ -83,7 +83,7 @@ src/station/
     └── factoryOverlay.css        Overlay styles (app tokens, single accent)
 ```
 
-App wiring lives in `src/main.js` (scene open/close, sidebar cards, render loop), `src/ui/AssetSelectionPanel.js` (Scenes menu) and `index.html` (sidebar cards).
+The stations and the factory are **built-in scenes** in the app's Scene tab (header scene menu → *Built-in scenes*), next to the scenes users make by drag and drop. `src/station/BuiltInScenes.js` lists them (name, description, status fields) and gives each the same interface (show/hide, start/reset/speed, update); one sidebar card, filled from those fields, runs whichever is open. Station 3 and the factory use their own copy of the ABB robot with its built-in rig, so the Machine tab's model is never borrowed. Tab switching is in `src/app/SceneTab.js`; `src/main.js` only builds the shared 3D view and the render loop.
 
 ---
 

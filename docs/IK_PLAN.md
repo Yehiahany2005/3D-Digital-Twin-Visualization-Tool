@@ -62,7 +62,7 @@
 | Station IK (existing) | `src/station/station-3/StationCycle.js` `solveTarget` | Finite-difference DLS, hardcoded to the ABB station gripper. **To be replaced** by the generic solver later. |
 | Persistence | `src/motion/RigStore.js` (localStorage), `src/assets/ImportStore.js` (IndexedDB) | The tool definition will be saved inside the rig definition, so it persists and exports with `.rig.json`. |
 | Asset structure | `src/scene/AssetManager.js` | `root` (base motion + unit scale) → `orientation` (up axis) → `content` (file). World units are **metres**. |
-| Header asset picker | `src/ui/AssetSelectionPanel.js` | Done in preparation (see §11). |
+| Header asset picker | `src/ui/AssetPicker.js` (menu: `src/ui/PickerMenu.js`) | Done in preparation (see §11). |
 
 ---
 

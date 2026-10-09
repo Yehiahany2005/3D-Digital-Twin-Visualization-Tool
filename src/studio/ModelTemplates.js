@@ -71,7 +71,9 @@ export class ModelTemplates {
 
   // A new placed copy, shaped like the assets Machine mode uses, so every tool works on it:
   // { config, model (root: unit scale + base motion), orientation, content, rig, player, … }.
-  async createInstance(config) {
+  // rig: a fixed rig definition instead of the model's current one (built-in scenes use this so
+  // joint edits made in Machine mode can't break them).
+  async createInstance(config, { rig = null } = {}) {
     const template = await this.template(config);
     const content = cloneWithSkeletons(template.content);
     const orientation = new THREE.Group();
@@ -95,7 +97,7 @@ export class ModelTemplates {
     };
     placeOnFloor(asset);
 
-    const definition = currentRigDefinition(config);
+    const definition = rig ? structuredClone(rig) : currentRigDefinition(config);
     asset.rig = new Rig({ root, content, definition: emptyRigDefinition() });
     try {
       asset.rig.setDefinition(definition);

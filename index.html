@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Digital Twin Demo</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='1' width='14' height='14' rx='3' fill='%2369c7d3'/%3E%3C/svg%3E" />
   </head>
   <body>
     <main id="app" aria-label="Digital Twin">
@@ -12,28 +13,46 @@
           <h1>Digital Twin 3d Visualization Demo</h1>
           <p class="subtitle">Interactive Demonstration</p>
         </div>
-        <div class="asset-switcher" data-asset-switcher>
-          <button type="button" class="asset-switcher-button" data-asset-switcher-button aria-haspopup="dialog" aria-expanded="false">
+        <div class="picker" data-asset-picker hidden>
+          <button type="button" class="picker-button" data-picker-button aria-haspopup="dialog" aria-expanded="false">
             <i data-lucide="box" aria-hidden="true"></i>
-            <span class="asset-switcher-text">
-              <strong data-asset-current-name>Loading…</strong>
-              <small data-asset-current-type></small>
+            <span class="picker-text">
+              <strong data-picker-name>Loading…</strong>
+              <small data-picker-type></small>
             </span>
             <span class="summary-chevron" aria-hidden="true"></span>
           </button>
-          <div class="asset-menu" data-asset-menu role="dialog" aria-label="Choose an asset" hidden>
-            <input type="search" class="asset-menu-search" data-asset-search placeholder="Search assets…" aria-label="Search assets" autocomplete="off" />
-            <div class="asset-menu-list" data-asset-list></div>
-            <div class="asset-menu-footer">
-              <button type="button" class="asset-menu-import" data-asset-import-button>Import 3D / CAD file</button>
+          <div class="picker-menu" data-picker-menu role="dialog" aria-label="Choose a model" hidden>
+            <input type="search" class="picker-search" data-picker-search placeholder="Search models…" aria-label="Search models" autocomplete="off" />
+            <div class="picker-list" data-picker-list></div>
+            <div class="picker-footer">
+              <button type="button" class="picker-action" data-asset-import-button>Import 3D / CAD file</button>
               <small>STEP, IGES, GLB, glTF, STL, OBJ, FBX, 3MF · kept on this device</small>
             </div>
           </div>
           <input type="file" data-asset-import hidden />
         </div>
-        <div class="scene-title" data-scene-title hidden>
-          <i data-lucide="layout-grid" aria-hidden="true"></i>
-          <span class="asset-switcher-text"><strong data-scene-title-name>Scene</strong><small data-scene-title-meta></small></span>
+        <div class="picker" data-scene-picker hidden>
+          <button type="button" class="picker-button" data-picker-button aria-haspopup="dialog" aria-expanded="false">
+            <i data-lucide="layout-grid" aria-hidden="true"></i>
+            <span class="picker-text">
+              <strong data-picker-name>Loading…</strong>
+              <small data-picker-type></small>
+            </span>
+            <span class="summary-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="picker-menu" data-picker-menu role="dialog" aria-label="Choose a scene" hidden>
+            <input type="search" class="picker-search" data-picker-search placeholder="Search scenes…" aria-label="Search scenes" autocomplete="off" />
+            <div class="picker-list" data-picker-list></div>
+            <div class="picker-footer">
+              <div class="picker-actions">
+                <button type="button" class="picker-action" data-scene-new title="Start an empty scene and build it by drag and drop">New scene</button>
+                <button type="button" class="picker-action" data-scene-open-file title="Open a .dtscene file (a scene plus the models it uses)">Open file</button>
+              </div>
+              <small>Scenes you make are kept on this device</small>
+            </div>
+          </div>
+          <input type="file" accept=".dtscene,.zip,.json" data-scene-file-input hidden />
         </div>
         <div class="header-meta">
           <div class="view-mode" aria-live="polite">
@@ -42,120 +61,15 @@
           </div>
           <button class="view-toggle" type="button" data-view-toggle>Switch View</button>
         </div>
-      </header> 
+      </header>
 
       <section class="workspace" aria-label="Digital twin workspace">
         <aside class="sidebar" aria-label="Asset controls and information">
           <div class="mode-tabs" role="tablist" aria-label="Mode">
             <button type="button" role="tab" data-mode-tab="machine" aria-selected="true" title="One model at a time: joints, animations, Reach"><i data-lucide="cpu" aria-hidden="true"></i>Machine</button>
-            <button type="button" role="tab" data-mode-tab="scene" aria-selected="false" title="Several models and parts together, like a studio editor"><i data-lucide="layout-grid" aria-hidden="true"></i>Scene</button>
+            <button type="button" role="tab" data-mode-tab="scene" aria-selected="false" title="Whole scenes: built-in production lines, or your own made by drag and drop"><i data-lucide="layout-grid" aria-hidden="true"></i>Scene</button>
           </div>
           <div class="mode-pane" data-mode-pane="machine">
-          <details class="sidebar-card station-card" data-station-card hidden>
-            <summary><span class="card-title"><i data-lucide="move-3d" aria-hidden="true"></i>Station 3</span><span class="summary-chevron" aria-hidden="true"></span></summary>
-            <div class="card-content">
-              <p class="editor-hint">ABB robot, procedural conveyor, and workpiece in a metre-based layout.</p>
-              <label class="station-debug-toggle"><input type="checkbox" data-station-debug /> Show reference frames</label>
-              <div class="station-actions">
-                <button type="button" class="primary-button" data-station-start>Start</button>
-                <button type="button" data-station-reset>Reset</button>
-              <label>Speed <select data-station-speed><option value="1">1×</option><option value="2">2×</option><option value="10">10× (debug)</option></select></label>
-              </div>
-              <dl class="station-status" aria-live="polite">
-                <div><dt>Conveyor</dt><dd data-station-conveyor-state>STOPPED</dd></div>
-                <div><dt>Robot State</dt><dd data-station-robot-state>Ready</dd></div>
-                <div><dt>Gripper State</dt><dd data-station-gripper-state>OPEN</dd></div>
-                <div><dt>Box State</dt><dd data-station-box-state>AT_PICKUP</dd></div>
-                <div><dt>Current Box</dt><dd data-station-box-number>0/27</dd></div>
-                <div><dt>TCP Position</dt><dd data-station-tcp-position>—</dd></div>
-                <div><dt>Box Position</dt><dd data-station-box-position>—</dd></div>
-                <div><dt>TCP → Box Distance</dt><dd data-station-distance>—</dd></div>
-                <div><dt>Stack Target</dt><dd data-station-stack-target>—</dd></div>
-                <div><dt>Position Error</dt><dd data-station-position-error>—</dd></div>
-                <div><dt>Bottom Height</dt><dd data-station-bottom-height>—</dd></div>
-                <div><dt>Box Rotation</dt><dd data-station-box-rotation>—</dd></div>
-                <div><dt>Current Station State</dt><dd data-station-state>IDLE</dd></div>
-              </dl>
-              <button type="button" class="import-button" data-station-exit>Leave Station</button>
-            </div>
-          </details>
-
-          <details class="sidebar-card station-card" data-factory-card hidden>
-            <summary><span class="card-title"><i data-lucide="move-3d" aria-hidden="true"></i>Factory · Lubricant Line</span><span class="summary-chevron" aria-hidden="true"></span></summary>
-            <div class="card-content">
-              <p class="editor-hint">Raw materials → filling → capping → case packing → palletizing → wrapping → finished pallet.</p>
-              <div class="station-actions">
-                <button type="button" class="primary-button" data-factory-start>Start</button>
-                <button type="button" data-factory-reset>Reset</button>
-              <label>Speed <select data-factory-speed><option value="1">1×</option><option value="2">2×</option><option value="10">10× (debug)</option></select></label>
-              </div>
-              <dl class="station-status" aria-live="polite">
-                <div><dt>Line State</dt><dd data-factory-state>IDLE</dd></div>
-                <div><dt>Jerry Can Supply</dt><dd data-factory-can-stock>—</dd></div>
-                <div><dt>Carton Supply</dt><dd data-factory-case-stock>—</dd></div>
-                <div><dt>Station 1</dt><dd data-factory-station1>—</dd></div>
-                <div><dt>Transfer 1 → 2</dt><dd data-factory-can-transfer>—</dd></div>
-                <div><dt>Station 2</dt><dd data-factory-station2>—</dd></div>
-                <div><dt>Transfer 2 → 3</dt><dd data-factory-case-transfer>—</dd></div>
-                <div><dt>Station 3</dt><dd data-factory-station3>—</dd></div>
-                <div><dt>Cans Filled / Capped</dt><dd data-factory-filled>0 / 0</dd></div>
-                <div><dt>Cases Packed</dt><dd data-factory-packed>0</dd></div>
-                <div><dt>Cases on Pallet</dt><dd data-factory-pallet>0 / 27</dd></div>
-              </dl>
-              <button type="button" class="import-button" data-factory-exit>Leave Factory</button>
-            </div>
-          </details>
-
-          <details class="sidebar-card station-card" data-oil-card hidden>
-            <summary><span class="card-title"><i data-lucide="move-3d" aria-hidden="true"></i>Station 1 · Oil Filling</span><span class="summary-chevron" aria-hidden="true"></span></summary>
-            <div class="card-content">
-              <p class="editor-hint">Procedural lubricant line: conveyor, 4-head filler, oil tank and servo capper.</p>
-              <div class="station-actions">
-                <button type="button" class="primary-button" data-oil-start>Start</button>
-                <button type="button" data-oil-reset>Reset</button>
-              <label>Speed <select data-oil-speed><option value="1">1×</option><option value="2">2×</option><option value="10">10× (debug)</option></select></label>
-              </div>
-              <dl class="station-status" aria-live="polite">
-                <div><dt>Process State</dt><dd data-oil-state>IDLE</dd></div>
-                <div><dt>Current Step</dt><dd data-oil-step>Ready</dd></div>
-                <div><dt>Conveyor</dt><dd data-oil-conveyor>STOPPED</dd></div>
-                <div><dt>Outfeed</dt><dd data-oil-outfeed>STOPPED</dd></div>
-                <div><dt>Filling Head</dt><dd data-oil-filling-head>RAISED</dd></div>
-                <div><dt>Valves</dt><dd data-oil-valves>CLOSED</dd></div>
-                <div><dt>Capping Head</dt><dd data-oil-capping-head>RAISED</dd></div>
-                <div><dt>Fill Level</dt><dd data-oil-fill-level>0 %</dd></div>
-                <div><dt>Filled / Capped</dt><dd data-oil-counts>0 / 0</dd></div>
-                <div><dt>Output</dt><dd data-oil-output>0</dd></div>
-                <div><dt>Machine Cycles</dt><dd data-oil-cycles>0</dd></div>
-              </dl>
-              <button type="button" class="import-button" data-oil-exit>Leave Station</button>
-            </div>
-          </details>
-
-          <details class="sidebar-card station-card" data-packing-card hidden>
-            <summary><span class="card-title"><i data-lucide="move-3d" aria-hidden="true"></i>Station 2 · Case Packing</span><span class="summary-chevron" aria-hidden="true"></span></summary>
-            <div class="card-content">
-              <p class="editor-hint">Two-lane can infeed, gantry pick-and-place with 2×2 handle grippers, carton line and case taper.</p>
-              <div class="station-actions">
-                <button type="button" class="primary-button" data-packing-start>Start</button>
-                <button type="button" data-packing-reset>Reset</button>
-              <label>Speed <select data-packing-speed><option value="1">1×</option><option value="2">2×</option><option value="10">10× (debug)</option></select></label>
-              </div>
-              <dl class="station-status" aria-live="polite">
-                <div><dt>Process State</dt><dd data-packing-state>EMPTY</dd></div>
-                <div><dt>Current Step</dt><dd data-packing-step>Line empty</dd></div>
-                <div><dt>Input Conveyor</dt><dd data-packing-input>STOPPED</dd></div>
-                <div><dt>Case Conveyor</dt><dd data-packing-box-conveyor>STOPPED</dd></div>
-                <div><dt>Robot</dt><dd data-packing-robot>HOME</dd></div>
-                <div><dt>Gripper</dt><dd data-packing-gripper>OPEN</dd></div>
-                <div><dt>Cans in Case</dt><dd data-packing-cans-in-box>0 / 4</dd></div>
-                <div><dt>Cases Completed</dt><dd data-packing-completed>0</dd></div>
-                <div><dt>Machine Cycles</dt><dd data-packing-cycles>0</dd></div>
-              </dl>
-              <button type="button" class="import-button" data-packing-exit>Leave Station</button>
-            </div>
-          </details>
-
           <details class="sidebar-card model-card" open>
             <summary><span class="card-title"><i data-lucide="cpu" aria-hidden="true"></i><span data-asset-info-title>Asset Information</span></span><span class="summary-chevron" aria-hidden="true"></span></summary>
             <div class="card-content model-highlight">
@@ -341,40 +255,60 @@
           </div>
 
           <div class="mode-pane" data-mode-pane="scene" hidden>
-            <details class="sidebar-card scene-file-card" data-scene-file-card open>
-              <summary><span class="card-title"><i data-lucide="layout-grid" aria-hidden="true"></i>Scene</span><span class="summary-chevron" aria-hidden="true"></span></summary>
-              <div class="card-content scene-file-content">
-                <label class="editor-field">Name<input type="text" data-scene-name autocomplete="off" /></label>
-                <label class="editor-field">Open<select data-scene-list aria-label="Saved scenes"></select></label>
-                <div class="button-row">
-                  <button type="button" data-scene-new>New</button>
-                  <button type="button" data-scene-open-file title="Open a .dtscene file (scene plus the models it uses)">Open file</button>
-                  <button type="button" data-scene-export title="Save this scene and the imported models it uses as one .dtscene file, to keep or send">Export</button>
-                  <button type="button" data-scene-delete title="Delete this scene from this browser">Delete</button>
+            <div class="pane-section" data-scene-source="builtin" hidden>
+              <details class="sidebar-card station-card" data-builtin-card open hidden>
+                <summary><span class="card-title"><i data-lucide="factory" aria-hidden="true"></i><span data-builtin-title>Built-in scene</span></span><span class="summary-chevron" aria-hidden="true"></span></summary>
+                <div class="card-content">
+                  <p class="editor-hint" data-builtin-description></p>
+                  <div class="station-actions">
+                    <button type="button" class="primary-button" data-builtin-start>Start</button>
+                    <button type="button" data-builtin-reset>Reset</button>
+                    <label class="station-speed">Speed
+                      <select data-builtin-speed>
+                        <option value="1">1×</option>
+                        <option value="2">2×</option>
+                        <option value="10">10× (debug)</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label class="station-debug-toggle" data-builtin-debug-row hidden><input type="checkbox" data-builtin-debug /> Show reference frames</label>
+                  <dl class="station-status" data-builtin-status></dl>
+                  <p class="editor-hint">Built-in scenes are made in code, so they run but can't be edited. To build your own, choose <strong>New scene</strong> in the scene menu above.</p>
                 </div>
-                <input type="file" accept=".dtscene,.zip,.json" data-scene-file-input hidden />
-                <p class="editor-hint" data-scene-save-state>Changes are saved in this browser as you go.</p>
-              </div>
-            </details>
+              </details>
+            </div>
 
-            <details class="sidebar-card scene-explorer-card" open>
-              <summary><span class="card-title"><i data-lucide="list-tree" aria-hidden="true"></i>Explorer</span><span class="editor-count" data-explorer-count></span><span class="summary-chevron" aria-hidden="true"></span></summary>
-              <div class="card-content">
-                <ul class="explorer-list" data-explorer-list role="tree" aria-label="Items in the scene"></ul>
-              </div>
-            </details>
+            <div class="pane-section" data-scene-source="editor" hidden>
+              <details class="sidebar-card scene-file-card" open>
+                <summary><span class="card-title"><i data-lucide="layout-grid" aria-hidden="true"></i>Scene</span><span class="summary-chevron" aria-hidden="true"></span></summary>
+                <div class="card-content scene-file-content">
+                  <label class="editor-field">Name<input type="text" data-scene-name autocomplete="off" /></label>
+                  <div class="button-row">
+                    <button type="button" data-scene-export title="Save this scene and the imported models it uses as one .dtscene file, to keep or send">Export</button>
+                    <button type="button" data-scene-delete title="Delete this scene from this browser">Delete</button>
+                  </div>
+                  <p class="editor-hint" data-scene-save-state>Changes are saved in this browser as you go.</p>
+                </div>
+              </details>
 
-            <details class="sidebar-card scene-properties-card" data-properties-card open>
-              <summary><span class="card-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Properties</span><span class="summary-chevron" aria-hidden="true"></span></summary>
-              <div class="card-content" data-properties></div>
-            </details>
+              <details class="sidebar-card scene-explorer-card" open>
+                <summary><span class="card-title"><i data-lucide="list-tree" aria-hidden="true"></i>Explorer</span><span class="editor-count" data-explorer-count></span><span class="summary-chevron" aria-hidden="true"></span></summary>
+                <div class="card-content">
+                  <ul class="explorer-list" data-explorer-list role="tree" aria-label="Items in the scene"></ul>
+                </div>
+              </details>
+
+              <details class="sidebar-card scene-properties-card" open>
+                <summary><span class="card-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Properties</span><span class="summary-chevron" aria-hidden="true"></span></summary>
+                <div class="card-content" data-properties></div>
+              </details>
+            </div>
           </div>
         </aside>
 
         <section id="viewport" aria-label="3D viewport">
-          <div class="viewport-label"></div>
           <p class="viewport-status" data-asset-status role="status" hidden></p>
-          <div class="reach-bar" data-reach-bar>
+          <div class="reach-bar" data-reach-bar hidden>
             <button type="button" class="reach-toggle" data-reach-toggle aria-pressed="false" title="Click a spot in the 3D view and the tool moves there. Esc to stop."><i data-lucide="crosshair" aria-hidden="true"></i>Reach</button>
             <div class="reach-tip">
               <button type="button" class="reach-tip-button" data-reach-tip-button aria-haspopup="dialog" aria-expanded="false" title="The tool tip: the spot that goes where you click">
@@ -462,8 +396,6 @@
           </div>
         </section>
       </section>
-
-
     </main>
     <script type="module" src="/src/main.js"></script>
   </body>

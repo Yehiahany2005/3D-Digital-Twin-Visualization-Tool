@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { StationEnvironment } from '../common/StationEnvironment.js';
 import { CASE_PACKING_DEFINITION, CASE_PACKING_STATES } from './CasePackingDefinition.js';
 import { createOilStationMaterials } from '../station-1/OilMaterials.js';
 import { group } from '../station-1/OilGeometry.js';
@@ -13,7 +13,6 @@ import { createBoxConveyors, createInputConveyor } from './PackingLineEquipment.
 import { CasePackingCycle } from './CasePackingCycle.js';
 
 const PANEL_REFRESH_SECONDS = 0.1;
-const ENVIRONMENT_INTENSITY = 0.55;
 
 const PANEL_STATE_COLORS = {
   EMPTY: '#8fa3ae',
@@ -143,14 +142,12 @@ export function buildCasePackingStation(definition = CASE_PACKING_DEFINITION) {
 export class CasePackingStation {
   constructor({ scene, renderer, cameraManager, controls, definition = CASE_PACKING_DEFINITION }) {
     this.scene = scene;
-    this.renderer = renderer;
     this.cameraManager = cameraManager;
     this.controls = controls;
     this.definition = definition;
     this.parts = null;
     this.cycle = null;
-    this.environment = null;
-    this.previousEnvironment = null;
+    this.environment = new StationEnvironment({ scene, renderer });
     this.panelTimer = 0;
     this.onCycleUpdate = null;
   }
@@ -181,7 +178,7 @@ export class CasePackingStation {
   show() {
     if (!this.parts) this.build();
     this.root.visible = true;
-    this.applyEnvironment();
+    this.environment.apply();
     this.cameraManager.frameObject(this.root, this.controls);
     this.refreshPanel();
     this.onCycleUpdate?.(this.cycle);
@@ -191,7 +188,7 @@ export class CasePackingStation {
     if (!this.parts) return;
     this.cycle.reset();
     this.root.visible = false;
-    this.restoreEnvironment();
+    this.environment.restore();
   }
 
   setCycleUpdateHandler(handler) {
@@ -225,25 +222,6 @@ export class CasePackingStation {
   refreshPanel() {
     this.panelTimer = 0;
     this.parts?.controlPanel.update(this.cycle?.status ?? {});
-  }
-
-  applyEnvironment() {
-    if (!this.environment && this.renderer) {
-      const generator = new THREE.PMREMGenerator(this.renderer);
-      this.environment = generator.fromScene(new RoomEnvironment(), 0.04).texture;
-      generator.dispose();
-    }
-    if (!this.environment || this.previousEnvironment) return;
-    this.previousEnvironment = { map: this.scene.environment, intensity: this.scene.environmentIntensity };
-    this.scene.environment = this.environment;
-    this.scene.environmentIntensity = ENVIRONMENT_INTENSITY;
-  }
-
-  restoreEnvironment() {
-    if (!this.previousEnvironment) return;
-    this.scene.environment = this.previousEnvironment.map;
-    this.scene.environmentIntensity = this.previousEnvironment.intensity;
-    this.previousEnvironment = null;
   }
 }
 

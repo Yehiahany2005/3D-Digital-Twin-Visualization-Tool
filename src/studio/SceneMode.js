@@ -25,10 +25,14 @@ function isTyping(event) {
   return Boolean(event.target.closest?.('input, select, textarea, [contenteditable="true"]'));
 }
 
-// Scene mode: several models and parts together, edited like a studio (Explorer, Properties,
-// Add drawer, move/turn gizmo). Machine mode is untouched; main.js switches between the two.
+// The scene editor: several models and parts together, built by drag and drop like a studio
+// (Explorer, Properties, Add drawer, move/turn gizmo, Play). It is the "My scenes" half of the
+// Scene tab (src/app/SceneTab.js); built-in scenes made in code are the other half.
+//
+// onSceneChange(scene) tells the tab the open scene's name or contents changed; onScenesSaved()
+// that the list of saved scenes may have changed.
 export class SceneMode {
-  constructor({ scene, cameraManager, controls, renderer, picker, outline, reachPanel, ui, onStatus, onError, onEditInMachine, onEnvironmentChange }) {
+  constructor({ scene, cameraManager, controls, renderer, picker, outline, reachPanel, templates, ui, onStatus, onError, onEditInMachine, onEnvironmentChange, onSceneChange, onScenesSaved }) {
     this.scene = scene;
     this.cameraManager = cameraManager;
     this.controls = controls;
@@ -39,10 +43,12 @@ export class SceneMode {
     this.onError = onError;
     this.onEditInMachine = onEditInMachine;
     this.onEnvironmentChange = onEnvironmentChange;
+    this.onSceneChange = onSceneChange;
+    this.onScenesSaved = onScenesSaved;
     this.active = false;
     this.opened = false;
 
-    this.templates = new ModelTemplates({ onStatus });
+    this.templates = templates || new ModelTemplates({ onStatus });
     this.thumbnails = new ThumbnailRenderer(renderer);
     this.editor = new SceneEditor({
       scene,
@@ -519,31 +525,13 @@ export class SceneMode {
     ui.sceneName.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') ui.sceneName.blur();
     });
-    ui.sceneList.addEventListener('change', () => this.openScene(ui.sceneList.value));
-    ui.sceneNew.addEventListener('click', () => this.newScene());
     ui.sceneDelete.addEventListener('click', () => this.deleteCurrent());
     ui.sceneExport.addEventListener('click', () => this.exportScene());
-    ui.sceneOpenFile.addEventListener('click', () => ui.sceneFileInput.click());
-    ui.sceneFileInput.addEventListener('change', () => {
-      const [file] = ui.sceneFileInput.files;
-      ui.sceneFileInput.value = '';
-      if (file) this.openFile(file);
-    });
   }
 
-  async refreshSceneList() {
-    const scenes = await listScenes();
-    const current = this.editor.document;
-    if (!scenes.some((scene) => scene.id === current.id)) scenes.unshift({ id: current.id, name: current.name, itemCount: current.items.length });
-    this.ui.sceneList.replaceChildren(...scenes.map((scene) => {
-      const option = new Option(`${scene.id === current.id ? current.name : scene.name} (${scene.id === current.id ? current.items.length : scene.itemCount})`, scene.id);
-      return option;
-    }));
-    this.ui.sceneList.value = current.id;
-  }
-
-  async openLastOrNew() {
-    const id = lastSceneId();
+  // The scene to open: the one asked for, else the last one open, else the latest saved.
+  async openLastOrNew(preferredId = null) {
+    const id = preferredId || lastSceneId();
     let scene = id ? await loadScene(id).catch(() => null) : null;
     if (!scene) {
       const [latest] = await listScenes();
@@ -560,7 +548,7 @@ export class SceneMode {
       return null;
     });
     if (scene) await this.show(scene);
-    else this.refreshSceneList();
+    else this.onScenesSaved?.();
   }
 
   async newScene() {
@@ -595,7 +583,7 @@ export class SceneMode {
     rememberLastScene(scene.id);
     this.ui.sceneName.value = scene.name;
     this.updateTitle();
-    await this.refreshSceneList();
+    this.onScenesSaved?.();
     if (scene.camera) this.restoreCamera(scene.camera);
     else this.frame(null);
     this.environmentChanged();
@@ -624,7 +612,7 @@ export class SceneMode {
       this.lastSaved = JSON.stringify(scene.items);
       this.ui.saveState.textContent = 'Saved in this browser. Export a .dtscene file to keep it safe or send it to someone.';
       this.ui.saveState.classList.remove('is-error');
-      this.refreshSceneList();
+      this.onScenesSaved?.();
     } catch (error) {
       console.warn('Scene could not be saved.', error);
       this.ui.saveState.textContent = "Couldn't save in this browser (it may be out of space). Use Export to keep this scene.";
@@ -837,7 +825,8 @@ export class SceneMode {
 
   // ---- Entering and leaving ----------------------------------------------------------------------------
 
-  async enter() {
+  // sceneId: open that saved scene (default: the one open last time).
+  async enter(sceneId = null) {
     this.active = true;
     this.ui.toolbar.hidden = false;
     this.editor.setShown(true);
@@ -845,7 +834,9 @@ export class SceneMode {
     this.reachPanel.setExtraTargets(() => this.editor.itemRoots());
     if (!this.opened) {
       this.opened = true;
-      await this.openLastOrNew();
+      await this.openLastOrNew(sceneId);
+    } else if (sceneId && sceneId !== this.editor.document.id) {
+      await this.openScene(sceneId);
     } else {
       // Rigs edited in Machine mode meanwhile: rebuild the copies that use them.
       const rebuilt = this.editor.refreshRigs((config) => JSON.stringify(currentRigDefinition(config)));
@@ -868,14 +859,15 @@ export class SceneMode {
     this.editor.select(null);
     this.editor.setShown(false);
     this.picker.setDefault(null);
+    // Reach belongs to the selected item; nothing selected here once the editor is left.
+    this.reachPanel.setHidden(true);
     this.reachPanel.setExtraTargets(null);
     this.editor.runtimes.forEach((runtime) => runtime.asset?.player.stop());
   }
 
   updateTitle() {
     const scene = this.editor.document;
-    this.ui.titleName.textContent = scene.name;
-    this.ui.titleMeta.textContent = `Scene · ${scene.items.length} item${scene.items.length === 1 ? '' : 's'}`;
+    this.onSceneChange?.(scene);
     if (document.activeElement !== this.ui.sceneName) this.ui.sceneName.value = scene.name;
   }
 

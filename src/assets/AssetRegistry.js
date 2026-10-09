@@ -27,13 +27,13 @@ export const ASSET_REGISTRY = [
     type: 'Industrial Machine',
     model: itemPickerUrl,
   },
-    {
+  {
     id: 'Unitree_robot',
     name: 'Unitree Humanoid Robot',
     type: 'Robot',
     model: unitreeUrl,
   },
-      {
+  {
     id: 'RoboticARM',
     name: 'Robotic Arm',
     type: 'Robot Arm',

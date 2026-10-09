@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { StationEnvironment } from '../common/StationEnvironment.js';
 import { OIL_STATION_DEFINITION, OIL_STATION_STATES, getSlotX } from './OilFillingDefinition.js';
 import { createOilStationMaterials } from './OilMaterials.js';
 import { group } from './OilGeometry.js';
@@ -15,7 +15,6 @@ import { createCapFactory, createJerryCanFactory } from './JerryCan.js';
 import { OilFillingCycle } from './OilFillingCycle.js';
 
 const PANEL_REFRESH_SECONDS = 0.1;
-const ENVIRONMENT_INTENSITY = 0.55;
 
 /**
  * Builds the complete Station 1 hierarchy from a definition:
@@ -179,14 +178,12 @@ export function buildOilFillingStation(definition = OIL_STATION_DEFINITION) {
 export class OilFillingStation {
   constructor({ scene, renderer, cameraManager, controls, definition = OIL_STATION_DEFINITION }) {
     this.scene = scene;
-    this.renderer = renderer;
     this.cameraManager = cameraManager;
     this.controls = controls;
     this.definition = definition;
     this.parts = null;
     this.cycle = null;
-    this.environment = null;
-    this.previousEnvironment = null;
+    this.environment = new StationEnvironment({ scene, renderer });
     this.panelTimer = 0;
     this.onCycleUpdate = null;
   }
@@ -226,7 +223,7 @@ export class OilFillingStation {
   show() {
     if (!this.parts) this.build();
     this.root.visible = true;
-    this.applyEnvironment();
+    this.environment.apply();
     this.cameraManager.frameObject(this.root, this.controls);
     this.refreshIndicators(true);
     this.onCycleUpdate?.(this.cycle);
@@ -236,7 +233,7 @@ export class OilFillingStation {
     if (!this.parts) return;
     this.cycle.reset();
     this.root.visible = false;
-    this.restoreEnvironment();
+    this.environment.restore();
   }
 
   setCycleUpdateHandler(handler) {
@@ -277,25 +274,6 @@ export class OilFillingStation {
     if (!refreshPanel) return;
     this.panelTimer = 0;
     this.parts.controlPanel.update(this.cycle.status);
-  }
-
-  applyEnvironment() {
-    if (!this.environment && this.renderer) {
-      const generator = new THREE.PMREMGenerator(this.renderer);
-      this.environment = generator.fromScene(new RoomEnvironment(), 0.04).texture;
-      generator.dispose();
-    }
-    if (!this.environment || this.previousEnvironment) return;
-    this.previousEnvironment = { map: this.scene.environment, intensity: this.scene.environmentIntensity };
-    this.scene.environment = this.environment;
-    this.scene.environmentIntensity = ENVIRONMENT_INTENSITY;
-  }
-
-  restoreEnvironment() {
-    if (!this.previousEnvironment) return;
-    this.scene.environment = this.previousEnvironment.map;
-    this.scene.environmentIntensity = this.previousEnvironment.intensity;
-    this.previousEnvironment = null;
   }
 }
 

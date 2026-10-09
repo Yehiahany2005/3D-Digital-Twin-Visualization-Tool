@@ -25,6 +25,25 @@ The current implementation is a **demo/prototype** and focuses specifically on t
 
 ---
 
+## Two tabs
+
+The sidebar has two tabs that share one 3D view. The menu in the header follows the tab.
+
+- **Machine**: one model at a time (built-in or imported), with its joints, poses, sequences,
+  Joint Setup, Animation Setup and Reach. The header menu picks the model.
+- **Scene**: whole scenes. The header menu has two kinds:
+  - **Built-in scenes**: the lubricant line (Factory, and Stations 1, 2 and 3 on their own), made in
+    code. Start, Reset and Speed run them; a live status shows in the sidebar. They can't be edited.
+  - **My scenes**: scenes you build by drag and drop (Add, move, turn, mount tools, Play with
+    physics). Kept in this browser; Export makes a `.dtscene` file to share.
+
+Code layout: `src/main.js` (shared view, tab switching, frame loop), `src/app/` (the two tabs),
+`src/station/` (built-in scenes), `src/studio/` (scene editor), `src/ui/` (Machine panels and
+header menus). Details: [`docs/SCENE_PLAN.md`](docs/SCENE_PLAN.md),
+[`docs/LUBRICANT_LINE.md`](docs/LUBRICANT_LINE.md).
+
+---
+
 ## Joints and animations
 
 Any model, including imported STEP/IGES files, can be made movable and animated in the browser:
@@ -39,7 +58,7 @@ Any model, including imported STEP/IGES files, can be made movable and animated 
    file that plays in Blender, Unity, Unreal and web viewers.
 
 Imported models are kept in this browser (IndexedDB), so they are still listed after a page
-refresh. Pick models from the asset picker in the header; the ✕ next to an imported model
+refresh. Pick models from the menu in the header (Machine tab); the ✕ next to an imported model
 deletes it from the device. Nothing is uploaded.
 
 Joints, poses and sequences are saved in the browser and in the `.rig.json` file

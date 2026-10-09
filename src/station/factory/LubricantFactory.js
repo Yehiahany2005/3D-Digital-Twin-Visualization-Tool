@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { StationEnvironment } from '../common/StationEnvironment.js';
 import { StepSequencer } from '../common/StepSequencer.js';
 import { group, smoother } from '../station-1/OilGeometry.js';
 import { OilFillingStation } from '../station-1/OilFillingStation.js';
@@ -23,7 +23,6 @@ export const FACTORY_STATES = Object.freeze({
 });
 
 const NO_CAMERA = { frameObject() {} };
-const ENVIRONMENT_INTENSITY = 0.55;
 const CAN_DEF = CASE_PACKING_DEFINITION.can;
 const CASE_DEF = CASE_PACKING_DEFINITION.box;
 const BELT_HEIGHT = CASE_PACKING_DEFINITION.line.beltHeight;
@@ -72,7 +71,6 @@ function reparentPreservingWorld(object, parent, worldMatrix) {
 export class LubricantFactory {
   constructor({ scene, renderer }) {
     this.scene = scene;
-    this.renderer = renderer;
     this.root = null;
     this.speed = 1;
     this.running = false;
@@ -81,8 +79,7 @@ export class LubricantFactory {
     this.stagedCans = null;
     this.cases = [];
     this.pendingS3Box = null;
-    this.environment = null;
-    this.previousEnvironment = null;
+    this.environment = new StationEnvironment({ scene, renderer });
     this.onUpdate = null;
   }
 
@@ -551,7 +548,7 @@ export class LubricantFactory {
     this.root.visible = true;
     await this.s3.show(asset);
     this.patchStation3();
-    this.applyEnvironment();
+    this.environment.apply();
     this.reset();
     this.setSpeed(this.speed);
   }
@@ -564,7 +561,7 @@ export class LubricantFactory {
     const robot = this.s3.hide();
     gripper?.removeFromParent();
     this.root.visible = false;
-    this.restoreEnvironment();
+    this.environment.restore();
     return robot;
   }
 
@@ -651,24 +648,5 @@ export class LubricantFactory {
 
   getBounds() {
     return this.root ? new THREE.Box3().setFromObject(this.root) : null;
-  }
-
-  applyEnvironment() {
-    if (!this.environment && this.renderer) {
-      const generator = new THREE.PMREMGenerator(this.renderer);
-      this.environment = generator.fromScene(new RoomEnvironment(), 0.04).texture;
-      generator.dispose();
-    }
-    if (!this.environment || this.previousEnvironment) return;
-    this.previousEnvironment = { map: this.scene.environment, intensity: this.scene.environmentIntensity };
-    this.scene.environment = this.environment;
-    this.scene.environmentIntensity = ENVIRONMENT_INTENSITY;
-  }
-
-  restoreEnvironment() {
-    if (!this.previousEnvironment) return;
-    this.scene.environment = this.previousEnvironment.map;
-    this.scene.environmentIntensity = this.previousEnvironment.intensity;
-    this.previousEnvironment = null;
   }
 }

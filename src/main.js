@@ -2,13 +2,13 @@ import * as THREE from 'three';
 import {
   Box,
   Clapperboard,
-  Crosshair,
   Cpu,
+  Crosshair,
+  Factory,
   LayoutGrid,
   ListTree,
   MousePointer2,
   Move,
-  Move3d,
   Play,
   PlayCircle,
   Plus,
@@ -27,100 +27,43 @@ import { SceneManager } from './scene/SceneManager.js';
 import { CameraManager } from './scene/CameraManager.js';
 import { LightingManager } from './scene/LightingManager.js';
 import { RendererManager } from './scene/RendererManager.js';
-import { Rig, emptyRigDefinition } from './motion/Rig.js';
-import { MotionPlayer } from './motion/MotionPlayer.js';
-import { JointControls } from './ui/JointControls.js';
-import { CommandsPanel } from './ui/CommandsPanel.js';
-import { RigEditorPanel } from './ui/RigEditorPanel.js';
-import { AnimationEditorPanel } from './ui/AnimationEditorPanel.js';
-import { ReachPanel } from './ui/ReachPanel.js';
-import { JointGizmo, LinePickPreview, PartHighlight, ReachMarker, SelectionOutline, SurfacePreview, ToolMarkers, ViewportPicker } from './scene/RigHelpers.js';
-import { loadSavedRig } from './motion/RigStore.js';
-import { AssetManager } from './scene/AssetManager.js';
-import { AssetSelectionPanel } from './ui/AssetSelectionPanel.js';
 import { DigitalTwinViewManager } from './scene/DigitalTwinViewManager.js';
 import { fitEnvironment } from './scene/fitEnvironment.js';
-import { StationScene } from './station/station-3/StationScene.js';
-import { OilFillingStation } from './station/station-1/OilFillingStation.js';
-import { CasePackingStation } from './station/station-2/CasePackingStation.js';
-import { LubricantFactory } from './station/factory/LubricantFactory.js';
-import { FactoryOverlay } from './station/factory/FactoryOverlay.js';
-import { lastAsset, listStoredImports, rememberLastAsset } from './assets/ImportStore.js';
-import { getAssetConfig } from './assets/AssetRegistry.js';
+import { ReachMarker, SelectionOutline, ToolMarkers, ViewportPicker } from './scene/RigHelpers.js';
+import { ReachPanel } from './ui/ReachPanel.js';
+import { StatusMessage } from './ui/StatusMessage.js';
+import { listStoredImports } from './assets/ImportStore.js';
+import { getAssetConfig, registerImportedAsset } from './assets/AssetRegistry.js';
+import { ModelTemplates } from './studio/ModelTemplates.js';
 import { SceneMode } from './studio/SceneMode.js';
 import { lastMode, rememberLastMode } from './studio/SceneStore.js';
+import { MachineTab } from './app/MachineTab.js';
+import { SceneTab } from './app/SceneTab.js';
 import './style.css';
 
-createIcons({ icons: { Box, Clapperboard, Crosshair, Cpu, LayoutGrid, ListTree, MousePointer2, Move, Move3d, Play, PlayCircle, Plus, Redo2, Rotate3d, RotateCw, SlidersHorizontal, TerminalSquare, Undo2, Upload, Wrench } });
+// The app has two tabs that share one 3D view:
+//   Machine (src/app/MachineTab.js): one model at a time, its joints, animations and Reach.
+//   Scene (src/app/SceneTab.js): whole scenes, built-in (made in code) or made by drag and drop.
+// This file builds the shared view, switches tabs and runs the frame loop. Each tab's exit()
+// puts away everything it owns, so nothing of one tab shows or reacts in the other.
 
-function updateClock() {
-  const timeElement = document.querySelector('[data-current-time]');
-  if (timeElement) timeElement.textContent = new Intl.DateTimeFormat(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(new Date());
-}
+createIcons({ icons: { Box, Clapperboard, Cpu, Crosshair, Factory, LayoutGrid, ListTree, MousePointer2, Move, Play, PlayCircle, Plus, Redo2, Rotate3d, RotateCw, SlidersHorizontal, TerminalSquare, Undo2, Upload, Wrench } });
 
-updateClock();
-window.setInterval(updateClock, 1000);
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
 
-const container = document.querySelector('#viewport');
-const visualizationButton = document.querySelector('[data-view-toggle]');
-const visualizationMode = document.querySelector('[data-view-mode]');
-const stationCard = document.querySelector('[data-station-card]');
-const stationDebug = document.querySelector('[data-station-debug]');
-const stationExit = document.querySelector('[data-station-exit]');
-const stationStart = document.querySelector('[data-station-start]');
-const stationReset = document.querySelector('[data-station-reset]');
-const stationSpeed = document.querySelector('[data-station-speed]');
-const stationRobotState = document.querySelector('[data-station-robot-state]');
-const stationConveyorState = document.querySelector('[data-station-conveyor-state]');
-const stationGripperState = document.querySelector('[data-station-gripper-state]');
-const stationBoxState = document.querySelector('[data-station-box-state]');
-const stationBoxNumber = document.querySelector('[data-station-box-number]');
-const stationTcpPosition = document.querySelector('[data-station-tcp-position]');
-const stationBoxPosition = document.querySelector('[data-station-box-position]');
-const stationDistance = document.querySelector('[data-station-distance]');
-const stationStackTarget = document.querySelector('[data-station-stack-target]');
-const stationPositionError = document.querySelector('[data-station-position-error]');
-const stationBottomHeight = document.querySelector('[data-station-bottom-height]');
-const stationBoxRotation = document.querySelector('[data-station-box-rotation]');
-const stationState = document.querySelector('[data-station-state]');
-const oilFields = {
-  state: document.querySelector('[data-oil-state]'),
-  step: document.querySelector('[data-oil-step]'),
-  conveyor: document.querySelector('[data-oil-conveyor]'),
-  outfeed: document.querySelector('[data-oil-outfeed]'),
-  fillingHead: document.querySelector('[data-oil-filling-head]'),
-  valves: document.querySelector('[data-oil-valves]'),
-  cappingHead: document.querySelector('[data-oil-capping-head]'),
-  fillLevel: document.querySelector('[data-oil-fill-level]'),
-  counts: document.querySelector('[data-oil-counts]'),
-  output: document.querySelector('[data-oil-output]'),
-  cycles: document.querySelector('[data-oil-cycles]'),
-};
-const packingFields = {
-  state: document.querySelector('[data-packing-state]'),
-  step: document.querySelector('[data-packing-step]'),
-  input: document.querySelector('[data-packing-input]'),
-  boxConveyor: document.querySelector('[data-packing-box-conveyor]'),
-  robot: document.querySelector('[data-packing-robot]'),
-  gripper: document.querySelector('[data-packing-gripper]'),
-  cansInBox: document.querySelector('[data-packing-cans-in-box]'),
-  completed: document.querySelector('[data-packing-completed]'),
-  cycles: document.querySelector('[data-packing-cycles]'),
-};
+// ---- The shared 3D view ------------------------------------------------------------------------
+
+const container = $('#viewport');
 const sceneManager = new SceneManager();
 const cameraManager = new CameraManager(container);
 const rendererManager = new RendererManager(container);
 const controls = new OrbitControls(cameraManager.camera, rendererManager.renderer.domElement);
-let lightingGroup;
-
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.screenSpacePanning = true;
-lightingGroup = new LightingManager().createLights();
+
+const lightingGroup = new LightingManager().createLights();
 sceneManager.add(lightingGroup);
 
 const floor = new THREE.Mesh(
@@ -132,328 +75,23 @@ floor.position.y = -0.005;
 floor.receiveShadow = true;
 sceneManager.add(floor);
 
-const clock = new THREE.Clock();
-const DEFAULT_ASSET_ID = 'abb_irb6760';
-let visualizationManager;
-let activeAsset;
-let stationMode = false;
-// 'machine': one model at a time (the original app). 'scene': several models and parts together.
-let mode = 'machine';
-const stationScene = new StationScene({
+const viewManager = new DigitalTwinViewManager({
   scene: sceneManager.scene,
-  cameraManager,
-  controls,
+  robot: null,
   floor,
+  lightingGroup,
+  toggleButton: $('[data-view-toggle]'),
+  modeElement: $('[data-view-mode]'),
 });
-stationScene.setCycleUpdateHandler((cycle) => {
-  stationConveyorState.textContent = cycle.conveyorState;
-  stationRobotState.textContent = cycle.robotState;
-  stationGripperState.textContent = cycle.gripperState;
-  stationBoxState.textContent = cycle.boxState;
-  const totalBoxes = cycle.layout.stack.columns * cycle.layout.stack.rows * cycle.layout.stack.layers;
-  stationBoxNumber.textContent = `${Math.min(cycle.boxNumber + 1, totalBoxes)}/${totalBoxes}`;
-  stationTcpPosition.textContent = cycle.getSuctionWorld().toArray().map((value) => value.toFixed(2)).join(', ');
-  stationBoxPosition.textContent = cycle.box
-    ? cycle.getBoxCenter().toArray().map((value) => value.toFixed(2)).join(', ')
-    : '—';
-  stationDistance.textContent = Number.isFinite(cycle.distance) ? `${cycle.distance.toFixed(3)} m` : '—';
-  stationStackTarget.textContent = cycle.stackTarget
-    ? cycle.stackTarget.toArray().map((value) => value.toFixed(2)).join(', ')
-    : '—';
-  stationPositionError.textContent = Number.isFinite(cycle.positionError) ? `${cycle.positionError.toFixed(3)} m` : '—';
-  stationBottomHeight.textContent = cycle.bottomHeight ? `${cycle.bottomHeight.toFixed(3)} m` : '—';
-  stationBoxRotation.textContent = cycle.rotation.toArray().slice(0, 3).map((value) => value.toFixed(2)).join(', ');
-  stationState.textContent = cycle.state;
-  stationStart.disabled = cycle.state !== 'IDLE' && cycle.state !== 'COMPLETE';
-});
+const lightGroups = [lightingGroup, viewManager.digitalLights];
 
-// Procedural stations (Station 1 oil filling, Station 2 case packing), independent from the
-// robot station (Station 3). Each has its own sidebar card with Start / Reset / Speed.
-const stationOptions = { scene: sceneManager.scene, renderer: rendererManager.renderer, cameraManager, controls };
-const proceduralStations = {
-  'oil-station': {
-    station: new OilFillingStation(stationOptions),
-    prefix: 'oil',
-    render: (status) => {
-      oilFields.state.textContent = status.state;
-      oilFields.step.textContent = status.step;
-      oilFields.conveyor.textContent = status.mainConveyor;
-      oilFields.outfeed.textContent = status.outfeedConveyor;
-      oilFields.fillingHead.textContent = status.fillingHead;
-      oilFields.valves.textContent = status.valves;
-      oilFields.cappingHead.textContent = status.cappingHead;
-      oilFields.fillLevel.textContent = `${Math.round(status.fillLevel * 100)} %`;
-      oilFields.counts.textContent = `${status.filledCount} / ${status.cappedCount}`;
-      oilFields.output.textContent = String(status.outputCount);
-      oilFields.cycles.textContent = String(status.cycles);
-    },
-  },
-  'packing-station': {
-    station: new CasePackingStation(stationOptions),
-    prefix: 'packing',
-    render: (status) => {
-      packingFields.state.textContent = status.state.replace(/_/g, ' ');
-      packingFields.step.textContent = status.step;
-      packingFields.input.textContent = status.inputConveyor;
-      packingFields.boxConveyor.textContent = status.boxConveyor;
-      packingFields.robot.textContent = status.robot;
-      packingFields.gripper.textContent = status.gripper;
-      packingFields.cansInBox.textContent = `${status.cansInBox} / 4`;
-      packingFields.completed.textContent = String(status.boxesCompleted);
-      packingFields.cycles.textContent = String(status.cycles);
-    },
-  },
-};
-Object.values(proceduralStations).forEach((entry) => {
-  entry.card = document.querySelector(`[data-${entry.prefix}-card]`);
-  entry.start = document.querySelector(`[data-${entry.prefix}-start]`);
-  entry.reset = document.querySelector(`[data-${entry.prefix}-reset]`);
-  entry.speed = document.querySelector(`[data-${entry.prefix}-speed]`);
-  entry.exit = document.querySelector(`[data-${entry.prefix}-exit]`);
-  entry.station.setCycleUpdateHandler(({ status, running }) => {
-    entry.render(status);
-    entry.start.disabled = running;
-  });
-});
-let activeProceduralId = null;
-
-// Factory: Station 1 → Station 2 → Station 3 as one continuous lubricant line.
-const factoryCard = document.querySelector('[data-factory-card]');
-const factoryStart = document.querySelector('[data-factory-start]');
-const factoryReset = document.querySelector('[data-factory-reset]');
-const factorySpeed = document.querySelector('[data-factory-speed]');
-const factoryExit = document.querySelector('[data-factory-exit]');
-const factoryFields = Object.fromEntries([
-  'state', 'can-stock', 'case-stock', 'station1', 'can-transfer', 'station2', 'case-transfer', 'station3', 'filled', 'packed', 'pallet',
-].map((key) => [key, document.querySelector(`[data-factory-${key}]`)]));
-let factoryMode = false;
-const factory = new LubricantFactory({ scene: sceneManager.scene, renderer: rendererManager.renderer });
-const factoryOverlay = new FactoryOverlay({
-  container,
-  camera: cameraManager.camera,
-  controls,
-  domElement: rendererManager.renderer.domElement,
-  factory,
-});
-factory.onUpdate = (line) => {
-  const status = line.status;
-  factoryFields.state.textContent = status.state.replace(/_/g, ' ');
-  factoryFields['can-stock'].textContent = `${status.canStock} cans`;
-  factoryFields['case-stock'].textContent = `${status.caseStock} cartons`;
-  factoryFields.station1.textContent = status.station1;
-  factoryFields['can-transfer'].textContent = status.canTransfer;
-  factoryFields.station2.textContent = status.station2;
-  factoryFields['case-transfer'].textContent = status.caseTransfer;
-  factoryFields.station3.textContent = status.station3;
-  factoryFields.filled.textContent = `${status.cansFilled} / ${status.cansCapped}`;
-  factoryFields.packed.textContent = String(status.casesPacked);
-  factoryFields.pallet.textContent = `${status.palletBoxes} / ${status.palletTotal}`;
-  factoryStart.disabled = line.running;
-};
-
-const jointControls = new JointControls({
-  container: document.querySelector('[data-joints-list]'),
-  filter: (joint) => joint.kind === 'joint',
-  emptyMessage: 'This model has no movable joints yet.',
-  emptyAction: { label: 'Set up joints', onClick: () => rigEditor.open() },
-});
-const commandsPanel = new CommandsPanel({
-  card: document.querySelector('[data-commands-card]'),
-  list: document.querySelector('[data-commands-list]'),
-  statusElement: document.querySelector('[data-motion-status]'),
-  stopButton: document.querySelector('[data-motion-stop]'),
-});
-
-const picker = new ViewportPicker({ domElement: rendererManager.renderer.domElement, camera: cameraManager.camera });
-const rigEditor = new RigEditorPanel({
-  card: document.querySelector('[data-rig-editor]'),
-  picker,
-  surfacePreview: new SurfacePreview(sceneManager.scene),
-  linePreview: new LinePickPreview(sceneManager.scene),
-  outline: new SelectionOutline(sceneManager.scene),
-  highlight: new PartHighlight(sceneManager.scene),
-  gizmo: new JointGizmo(sceneManager.scene),
-});
-
-const reachPanel = new ReachPanel({
-  bar: document.querySelector('[data-reach-bar]'),
-  picker,
-  marker: new ReachMarker(sceneManager.scene),
-  toolMarkers: new ToolMarkers(sceneManager.scene),
-  floor,
-  onNeedJoints: () => rigEditor.open(),
-});
-
-const animationEditorCard = document.querySelector('[data-animation-editor]');
-const animationEditor = new AnimationEditorPanel({
-  card: animationEditorCard,
-  // The exported file should carry the model's own materials, not the Digital Twin View tint.
-  beforeExport: () => visualizationManager?.useOriginalMaterials(),
-});
-
-// Each asset keeps its own rig and player, so switching assets preserves its pose.
-function ensureRig(asset) {
-  if (asset.rig) return;
-  const fallback = asset.config.rig ? structuredClone(asset.config.rig) : emptyRigDefinition();
-  const saved = loadSavedRig(asset.config);
-  asset.rig = new Rig({ root: asset.model, content: asset.content, definition: emptyRigDefinition() });
-  try {
-    asset.rig.setDefinition(saved || fallback);
-  } catch (error) {
-    console.warn('Rig could not be built; using the default rig instead.', error);
-    asset.rig.setDefinition(saved ? fallback : emptyRigDefinition());
-  }
-  asset.rig.warnings.forEach((warning) => console.warn(warning));
-  asset.player = new MotionPlayer(asset.rig);
-}
-
-function handleAssetLoaded(asset) {
-  activeAsset?.player?.stop();
-  activeAsset = asset;
-  rememberLastAsset(asset.config.id);
-  ensureRig(asset);
-  // In Scene mode the machine stays loaded but out of sight until Machine mode is opened again.
-  asset.model.visible = mode === 'machine';
-  if (visualizationManager) {
-    if (mode === 'machine') visualizationManager.replaceRobot(asset.model);
-  } else {
-    visualizationManager = new DigitalTwinViewManager({
-      scene: sceneManager.scene,
-      robot: asset.model,
-      floor,
-      lightingGroup,
-      toggleButton: visualizationButton,
-      modeElement: visualizationMode,
-    });
-  }
-  if (mode === 'machine') fitMachineEnvironment(asset);
-
-  jointControls.setRig(asset.rig, asset.player);
-  commandsPanel.setRig(asset.rig, asset.player);
-  rigEditor.setAsset(asset);
-  animationEditor.setAsset(asset);
-  if (mode === 'machine') reachPanel.setAsset(asset);
-  assetSelectionPanel.update(asset);
-  if (stationMode && asset.config.id === 'abb_irb6760') void stationScene.show(asset);
-}
-
-function fitMachineEnvironment(asset) {
-  fitEnvironment({
-    model: asset.model,
-    scene: sceneManager.scene,
-    floor,
-    grid: visualizationManager.grid,
-    lightGroups: [lightingGroup, visualizationManager.digitalLights],
-  });
-
-  jointControls.setRig(asset.rig, asset.player);
-  commandsPanel.setRig(asset.rig, asset.player);
-  rigEditor.setAsset(asset);
-  animationEditor.setAsset(asset);
-  assetSelectionPanel.update(asset);
-  if (stationMode && asset.config.id === 'abb_irb6760') void stationScene.show(asset);
-  if (activeProceduralId) {
-    // A model that finished loading after a procedural station opened stays hidden behind it.
-    asset.model.visible = false;
-    fitProceduralEnvironment(proceduralStations[activeProceduralId].station);
-    assetSelectionPanel.setCurrent(activeProceduralId);
-  }
-}
-
-const assetManager = new AssetManager({
-  scene: sceneManager.scene,
-  cameraManager,
-  controls,
-  onAssetLoaded: handleAssetLoaded,
-  onAssetError: (config, error) => {
-    console.error(`Asset selection failed for ${config.name}:`, error);
-    assetSelectionPanel.showError(`Unable to load ${config.name}: ${error.message || 'unknown error'}`);
-  },
-  onStatus: (message) => assetSelectionPanel.setStatus(message),
-});
-
-const assetSelectionPanel = new AssetSelectionPanel({
-  assetManager,
-  nameElement: document.querySelector('[data-asset-name]'),
-  typeElement: document.querySelector('[data-asset-type]'),
-  animationCountElement: document.querySelector('[data-asset-animation-count]'),
-  animationCard: document.querySelector('[data-animation-card]'),
-  animationSelect: document.querySelector('[data-animation-select]'),
-  playButton: document.querySelector('[data-animation-play]'),
-  pauseButton: document.querySelector('[data-animation-pause]'),
-  restartButton: document.querySelector('[data-animation-restart]'),
-  messageElement: document.querySelector('[data-asset-message]'),
-  onStationSelect: openStation,
-  onProceduralStationSelect: openProceduralStation,
-  onFactorySelect: openFactory,
-  // Picking a model while a station runs leaves the station first.
-  onAssetSelect: async (id) => {
-    if (factoryMode) closeFactory();
-    if (stationMode) closeStation();
-    if (activeProceduralId) closeProceduralStation();
-    await assetManager.select(id);
-  },
-  defaultAssetId: DEFAULT_ASSET_ID,
-});
-
-// Lists the models saved on this device, then reopens the one in use before the page was refreshed.
-async function startUp() {
-  (await listStoredImports()).forEach(({ id, file }) => assetSelectionPanel.addStoredModel(id, file));
-  const last = lastAsset();
-  const first = last && last !== 'station' && getAssetConfig(last) ? last : DEFAULT_ASSET_ID;
-  assetSelectionPanel.setLoading(true);
-  await assetManager.select(first);
-  if (!assetManager.currentAsset) await assetManager.select(DEFAULT_ASSET_ID);
-  assetSelectionPanel.setLoading(false);
-  if (lastMode() === 'scene') await setMode('scene');
-}
-
-void startUp();
-
-async function openStation() {
-  if (factoryMode) closeFactory();
-  if (activeProceduralId) closeProceduralStation();
-  stationMode = true;
-  // The station cycle drives the robot itself, so sequences and Reach would fight it.
-  animationEditorCard.hidden = true;
-  reachPanel.setHidden(true);
-  await assetManager.select('abb_irb6760');
-  if (activeAsset?.config.id === 'abb_irb6760') await stationScene.show(activeAsset);
-  stationCard.hidden = false;
-  stationCard.open = true;
-  assetSelectionPanel.setCurrent('station');
-}
-
-// Puts the robot a station cell borrowed back into the normal asset view.
-function returnRobotToAssetView(robot) {
-  if (!robot || !activeAsset) return;
-  // The station moved the robot through its base joints; put those back too, or the next
-  // joint change would send the robot back to its station spot.
-  activeAsset.rig.setValues({ 'base.x': 0, 'base.y': 0, 'base.z': 0, 'base.yaw': 0 });
-  robot.position.set(0, 0, 0);
-  robot.rotation.set(0, 0, 0);
-  assetManager.applyPlacement(activeAsset);
-  sceneManager.add(robot);
-  cameraManager.frameObject(robot, controls);
-}
-
-function closeStation() {
-  stationMode = false;
-  returnRobotToAssetView(stationScene.hide());
-  stationCard.hidden = true;
-  animationEditorCard.hidden = false;
-  reachPanel.setHidden(false);
-  assetSelectionPanel.setCurrent(activeAsset?.config.id || DEFAULT_ASSET_ID);
-  stationDebug.checked = false;
-}
-
-// Fits floor, fog and shadows to a procedural station, then tightens the shadow frustum so the
-// ~14 m cell keeps crisp shadows.
-function fitProceduralEnvironment(station) {
-  const lightGroups = [lightingGroup, visualizationManager?.digitalLights];
-  fitEnvironment({ model: station.root, scene: sceneManager.scene, floor, grid: visualizationManager?.grid, lightGroups });
-  const radius = station.getBounds().getBoundingSphere(new THREE.Sphere()).radius;
-  lightGroups.forEach((group) => group?.traverse((light) => {
+// Floor, fog, grid and lights sized to what is shown. span: the size to fit when it shouldn't be
+// measured from root. tightShadows: fit the shadow area to root, so a whole cell keeps crisp shadows.
+function fitTo(root, { span, tightShadows = false } = {}) {
+  fitEnvironment({ model: root, span, scene: sceneManager.scene, floor, grid: viewManager.grid, lightGroups });
+  if (!tightShadows) return;
+  const radius = new THREE.Box3().setFromObject(root).getBoundingSphere(new THREE.Sphere()).radius;
+  lightGroups.forEach((group) => group.traverse((light) => {
     if (!light.isDirectionalLight || !light.castShadow) return;
     const camera = light.shadow.camera;
     camera.left = -radius;
@@ -465,210 +103,192 @@ function fitProceduralEnvironment(station) {
   }));
 }
 
-function openProceduralStation(id) {
-  if (factoryMode) closeFactory();
-  if (stationMode) closeStation();
-  if (activeProceduralId) closeProceduralStation();
-  const entry = proceduralStations[id];
-  activeProceduralId = id;
-  activeAsset?.player?.stop();
-  if (activeAsset) activeAsset.model.visible = false;
-  animationEditorCard.hidden = true;
-  entry.station.show();
-  fitProceduralEnvironment(entry.station);
-  entry.station.setCycleSpeed(Number(entry.speed.value));
-  entry.card.hidden = false;
-  entry.card.open = true;
-  assetSelectionPanel.setCurrent(id);
-}
-
-function closeProceduralStation() {
-  const entry = proceduralStations[activeProceduralId];
-  activeProceduralId = null;
-  entry.station.hide();
-  entry.card.hidden = true;
-  animationEditorCard.hidden = false;
-  if (activeAsset) {
-    activeAsset.model.visible = true;
-    fitEnvironment({
-      model: activeAsset.model,
-      scene: sceneManager.scene,
-      floor,
-      grid: visualizationManager?.grid,
-      lightGroups: [lightingGroup, visualizationManager?.digitalLights],
-    });
-    cameraManager.frameObject(activeAsset.model, controls);
-  }
-  assetSelectionPanel.setCurrent(activeAsset?.config.id || DEFAULT_ASSET_ID);
-}
-
-async function openFactory() {
-  if (stationMode) closeStation();
-  if (activeProceduralId) closeProceduralStation();
-  factoryMode = true;
-  // Station 3's cycle drives the robot, so sequences and Reach would fight it.
-  animationEditorCard.hidden = true;
-  reachPanel.setHidden(true);
-  await assetManager.select('abb_irb6760');
-  if (!factoryMode || activeAsset?.config.id !== 'abb_irb6760') return;
-  activeAsset.player?.stop();
-  activeAsset.model.visible = true;
-  await factory.show(activeAsset);
-  fitProceduralEnvironment(factory);
-  cameraManager.frameObject(factory.root, controls);
-  factoryOverlay.activate();
-  factory.setSpeed(Number(factorySpeed.value));
-  factoryCard.hidden = false;
-  factoryCard.open = true;
-  assetSelectionPanel.setCurrent('factory');
-}
-
-function closeFactory() {
-  factoryMode = false;
-  factoryOverlay.deactivate();
-  returnRobotToAssetView(factory.hide());
-  if (activeAsset) {
-    fitEnvironment({
-      model: activeAsset.model,
-      scene: sceneManager.scene,
-      floor,
-      grid: visualizationManager?.grid,
-      lightGroups: [lightingGroup, visualizationManager?.digitalLights],
-    });
-  }
-  factoryCard.hidden = true;
-  animationEditorCard.hidden = false;
-  reachPanel.setHidden(false);
-  assetSelectionPanel.setCurrent(activeAsset?.config.id || DEFAULT_ASSET_ID);
-}
-
-factoryExit.addEventListener('click', closeFactory);
-factoryStart.addEventListener('click', () => factory.start());
-factoryReset.addEventListener('click', () => factory.reset());
-factorySpeed.addEventListener('change', () => factory.setSpeed(Number(factorySpeed.value)));
-
-Object.values(proceduralStations).forEach(({ station, start, reset, speed, exit }) => {
-  exit.addEventListener('click', closeProceduralStation);
-  start.addEventListener('click', () => station.startCycle());
-  reset.addEventListener('click', () => station.resetCycle());
-  speed.addEventListener('change', () => station.setCycleSpeed(Number(speed.value)));
+const picker = new ViewportPicker({ domElement: rendererManager.renderer.domElement, camera: cameraManager.camera });
+const status = new StatusMessage($('[data-asset-status]'));
+// Reach works on the Machine tab's model and on machines in the scene editor.
+const reach = new ReachPanel({
+  bar: $('[data-reach-bar]'),
+  picker,
+  marker: new ReachMarker(sceneManager.scene),
+  toolMarkers: new ToolMarkers(sceneManager.scene),
+  floor,
+  onNeedJoints: () => {
+    if (mode === 'machine') machine.rigEditor.open();
+  },
 });
 
-stationExit.addEventListener('click', closeStation);
-stationDebug.addEventListener('change', () => stationScene.setDebug(stationDebug.checked));
-stationStart.addEventListener('click', () => stationScene.startCycle());
-stationReset.addEventListener('click', () => stationScene.resetCycle());
-stationSpeed.addEventListener('change', () => stationScene.setCycleSpeed(Number(stationSpeed.value)));
+const view = {
+  container,
+  scene: sceneManager.scene,
+  renderer: rendererManager.renderer,
+  cameraManager,
+  controls,
+  floor,
+  viewManager,
+  picker,
+  reach,
+  status,
+  fitTo,
+};
 
-// ---- Machine mode / Scene mode ------------------------------------------------------------------
+// ---- Tabs -----------------------------------------------------------------------------------
 
-const sceneOutline = new SelectionOutline(sceneManager.scene);
-const sceneMode = new SceneMode({
+const machine = new MachineTab({
+  view,
+  ui: {
+    pickerRoot: $('[data-asset-picker]'),
+    jointsList: $('[data-joints-list]'),
+    commands: {
+      card: $('[data-commands-card]'),
+      list: $('[data-commands-list]'),
+      statusElement: $('[data-motion-status]'),
+      stopButton: $('[data-motion-stop]'),
+    },
+    rigEditorCard: $('[data-rig-editor]'),
+    animationEditorCard: $('[data-animation-editor]'),
+    assetInfo: {
+      nameElement: $('[data-asset-name]'),
+      typeElement: $('[data-asset-type]'),
+      animationCountElement: $('[data-asset-animation-count]'),
+      animationCard: $('[data-animation-card]'),
+      animationSelect: $('[data-animation-select]'),
+      playButton: $('[data-animation-play]'),
+      pauseButton: $('[data-animation-pause]'),
+      restartButton: $('[data-animation-restart]'),
+      messageElement: $('[data-asset-message]'),
+    },
+  },
+});
+
+// Parsed model files, shared by the scene editor and the built-in scenes' robot.
+const templates = new ModelTemplates({ onStatus: (message) => status.show(message) });
+
+const sceneEditor = new SceneMode({
   scene: sceneManager.scene,
   cameraManager,
   controls,
   renderer: rendererManager.renderer,
   picker,
-  outline: sceneOutline,
-  reachPanel,
+  outline: new SelectionOutline(sceneManager.scene),
+  reachPanel: reach,
+  templates,
   ui: {
-    toolbar: document.querySelector('[data-scene-toolbar]'),
-    toolButtons: [...document.querySelectorAll('[data-scene-tool]')],
-    snap: document.querySelector('[data-scene-snap]'),
-    undo: document.querySelector('[data-scene-undo]'),
-    redo: document.querySelector('[data-scene-redo]'),
-    play: document.querySelector('[data-scene-play]'),
-    playLabel: document.querySelector('[data-scene-play-label]'),
-    freeRotate: document.querySelector('[data-scene-free-rotate]'),
-    playStatus: document.querySelector('[data-scene-play-status]'),
-    addButton: document.querySelector('[data-scene-add]'),
-    drawer: document.querySelector('[data-add-drawer]'),
-    explorerList: document.querySelector('[data-explorer-list]'),
-    explorerCount: document.querySelector('[data-explorer-count]'),
-    properties: document.querySelector('[data-properties]'),
-    sceneName: document.querySelector('[data-scene-name]'),
-    sceneList: document.querySelector('[data-scene-list]'),
-    sceneNew: document.querySelector('[data-scene-new]'),
-    sceneDelete: document.querySelector('[data-scene-delete]'),
-    sceneExport: document.querySelector('[data-scene-export]'),
-    sceneOpenFile: document.querySelector('[data-scene-open-file]'),
-    sceneFileInput: document.querySelector('[data-scene-file-input]'),
-    saveState: document.querySelector('[data-scene-save-state]'),
-    titleName: document.querySelector('[data-scene-title-name]'),
-    titleMeta: document.querySelector('[data-scene-title-meta]'),
+    toolbar: $('[data-scene-toolbar]'),
+    toolButtons: $$('[data-scene-tool]'),
+    snap: $('[data-scene-snap]'),
+    undo: $('[data-scene-undo]'),
+    redo: $('[data-scene-redo]'),
+    play: $('[data-scene-play]'),
+    playLabel: $('[data-scene-play-label]'),
+    freeRotate: $('[data-scene-free-rotate]'),
+    playStatus: $('[data-scene-play-status]'),
+    addButton: $('[data-scene-add]'),
+    drawer: $('[data-add-drawer]'),
+    explorerList: $('[data-explorer-list]'),
+    explorerCount: $('[data-explorer-count]'),
+    properties: $('[data-properties]'),
+    sceneName: $('[data-scene-name]'),
+    sceneDelete: $('[data-scene-delete]'),
+    sceneExport: $('[data-scene-export]'),
+    saveState: $('[data-scene-save-state]'),
   },
-  onStatus: (message) => assetSelectionPanel.setStatus(message),
-  onError: (message) => assetSelectionPanel.showError(message),
-  // "Joints & animations" on a scene item: open that model in Machine mode.
+  onStatus: (message) => status.show(message),
+  onError: (message) => status.error(message),
+  // "Joints & animations" on a scene item: open that model in the Machine tab.
   onEditInMachine: async (assetId) => {
-    await setMode('machine');
-    if (getAssetConfig(assetId)) await assetManager.select(assetId);
-    rigEditor.open();
+    await setMode('machine', { assetId });
+    machine.rigEditor.open();
   },
   onEnvironmentChange: (root, span) => {
-    if (!visualizationManager) return;
-    visualizationManager.replaceRobot(root, { force: true });
-    fitEnvironment({ model: root, span, scene: sceneManager.scene, floor, grid: visualizationManager.grid, lightGroups: [lightingGroup, visualizationManager.digitalLights] });
+    viewManager.replaceRobot(root, { force: true });
+    fitTo(root, { span });
+  },
+  onSceneChange: () => sceneTab.sceneChanged(),
+  onScenesSaved: () => sceneTab.refreshSaved(),
+});
+
+const sceneTab = new SceneTab({
+  view,
+  templates,
+  editor: sceneEditor,
+  ui: {
+    pickerRoot: $('[data-scene-picker]'),
+    newScene: $('[data-scene-new]'),
+    openFile: $('[data-scene-open-file]'),
+    fileInput: $('[data-scene-file-input]'),
+    builtInPane: $('[data-scene-source="builtin"]'),
+    editorPane: $('[data-scene-source="editor"]'),
+    builtInCard: {
+      card: $('[data-builtin-card]'),
+      title: $('[data-builtin-title]'),
+      description: $('[data-builtin-description]'),
+      start: $('[data-builtin-start]'),
+      reset: $('[data-builtin-reset]'),
+      speed: $('[data-builtin-speed]'),
+      debugRow: $('[data-builtin-debug-row]'),
+      debug: $('[data-builtin-debug]'),
+      status: $('[data-builtin-status]'),
+    },
   },
 });
 
-const modeTabs = [...document.querySelectorAll('[data-mode-tab]')];
-const modePanes = [...document.querySelectorAll('[data-mode-pane]')];
-const assetSwitcher = document.querySelector('[data-asset-switcher]');
-const sceneTitle = document.querySelector('[data-scene-title]');
+const tabs = { machine, scene: sceneTab };
+const modeTabs = $$('[data-mode-tab]');
+const modePanes = $$('[data-mode-pane]');
+let mode = null;
+let switching = Promise.resolve();
+
 modeTabs.forEach((tab) => tab.addEventListener('click', () => setMode(tab.dataset.modeTab)));
 
-async function setMode(next) {
-  if (next === mode) return;
-  mode = next;
-  rememberLastMode(next);
-  modeTabs.forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.modeTab === next)));
-  modePanes.forEach((pane) => { pane.hidden = pane.dataset.modePane !== next; });
-  assetSwitcher.hidden = next === 'scene';
-  sceneTitle.hidden = next !== 'scene';
-  document.body.dataset.mode = next;
-  reachPanel.setActive(false);
-
-  if (next === 'scene') {
-    if (stationMode) closeStation();
-    // Joint Setup picks on the machine; nothing of Machine mode may keep the viewport's clicks.
-    rigEditor.card.open = false;
-    activeAsset?.player.stop();
-    if (activeAsset) activeAsset.model.visible = false;
-    await sceneMode.enter();
-  } else {
-    sceneMode.exit();
-    reachPanel.setHidden(false);
-    if (activeAsset) {
-      activeAsset.model.visible = true;
-      reachPanel.setAsset(activeAsset);
-      visualizationManager?.replaceRobot(activeAsset.model, { force: true });
-      fitMachineEnvironment(activeAsset);
-      cameraManager.frameObject(activeAsset.model, controls);
-    }
-  }
+// Tab switches run one after another, so a quick double switch can't leave both half-open.
+// options go to the tab's enter() (the Machine tab takes { assetId }).
+function setMode(next, options = {}) {
+  switching = switching.then(async () => {
+    if (next === mode || !tabs[next]) return;
+    const previous = tabs[mode];
+    mode = next;
+    rememberLastMode(next);
+    modeTabs.forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.modeTab === next)));
+    modePanes.forEach((pane) => { pane.hidden = pane.dataset.modePane !== next; });
+    document.body.dataset.mode = next;
+    previous?.exit();
+    await tabs[next].enter(options);
+  }).catch((error) => {
+    console.error('Switching tabs failed.', error);
+    status.error(`Something went wrong: ${error.message || 'unknown error'}`);
+  });
+  return switching;
 }
 
-function handleResize() {
+// Lists the models saved on this device, then opens the tab (and its model or scene) in use
+// before the page was refreshed.
+async function startUp() {
+  (await listStoredImports()).forEach(({ id, file }) => {
+    if (!getAssetConfig(id)) registerImportedAsset(file, { id, stored: true });
+  });
+  await setMode(lastMode() === 'scene' ? 'scene' : 'machine');
+}
+
+void startUp();
+
+// ---- Frame loop -----------------------------------------------------------------------------
+
+window.addEventListener('resize', () => {
   cameraManager.updateAspectRatio();
   rendererManager.resize(container);
-}
+});
 
-window.addEventListener('resize', handleResize);
+const timer = new THREE.Timer();
+// Pauses with the page, so a hidden tab doesn't come back with one huge step.
+timer.connect(document);
 
-function render() {
-  const deltaTime = Math.min(clock.getDelta(), 0.1);
-  activeAsset?.player.update(deltaTime);
-  jointControls.update();
-  rigEditor.update();
-  reachPanel.update();
-  sceneMode.update(deltaTime);
-  assetManager.update(deltaTime);
-  stationScene.update(deltaTime);
-  Object.values(proceduralStations).forEach(({ station }) => station.update(deltaTime));
-  factory.update(deltaTime);
-  factoryOverlay.update(deltaTime);
-  visualizationManager?.update(deltaTime);
+function render(timestamp) {
+  timer.update(timestamp);
+  const deltaTime = Math.min(timer.getDelta(), 0.1);
+  machine.update(deltaTime);
+  sceneTab.update(deltaTime);
+  reach.update();
+  viewManager.update(deltaTime);
   controls.update();
   rendererManager.renderer.render(sceneManager.scene, cameraManager.camera);
   requestAnimationFrame(render);
@@ -677,4 +297,13 @@ function render() {
 render();
 
 // Development only (npm run dev): lets automated browser checks look inside the app.
-if (import.meta.env.DEV) window.__twin = { sceneMode, assetManager, get mode() { return mode; }, get activeAsset() { return activeAsset; }, rendererManager };
+if (import.meta.env.DEV) {
+  window.__twin = {
+    machine,
+    sceneTab,
+    sceneEditor,
+    rendererManager,
+    get mode() { return mode; },
+    get activeAsset() { return machine.asset; },
+  };
+}

@@ -404,7 +404,8 @@ Then step 3 adds the sequence steps ("reach anchor", "grip" = attach in place to
 | Anchors, snapping maths, mounting alignment | `src/studio/Anchors.js` |
 | Mesh merging (performance) | `src/studio/mergeStatic.js` |
 | Simulation (Rapier) | `src/studio/Simulation.js` |
-| Mode controller (files, toolbar, keys, Reach binding, play) | `src/studio/SceneMode.js` |
+| Scene editor controller (files, toolbar, keys, Reach binding, play) | `src/studio/SceneMode.js` |
+| Scene tab: header scene menu, built-in scenes vs. the editor | `src/app/SceneTab.js`, `src/station/BuiltInScenes.js` |
 | UI: Explorer, Properties, Add drawer, icons, thumbnails | `src/studio/ui/*`, `src/studio/thumbnails.js` |
 | Catalog (12 parts) | `src/studio/catalog/*` |
 
@@ -431,3 +432,11 @@ Play runs Rapier physics (loaded on first Play, ~1.6 MB gzipped); Stop restores 
 - A model marked solid uses one box; robots should stay non-solid.
 - Very heavy imports still cost triangles (merging only cuts draw calls); simplification/LOD is future work.
 - Two copies of the same robot share its rig (by design); per-copy differences come from what is mounted.
+
+### 9.7 Restructure (2026-10-09)
+
+The station scenes (Factory, Stations 1–3) used to sit in the Machine tab's model menu and borrowed its robot. They are now **built-in scenes** in the Scene tab:
+
+- The header shows a **scene menu** in the Scene tab (like the model menu in the Machine tab): *Built-in scenes* (made in code, run with Start/Reset/Speed) and *My scenes* (drag and drop), plus New scene / Open file.
+- `src/main.js` builds the shared 3D view, switches tabs and runs the frame loop. Each tab (`src/app/MachineTab.js`, `src/app/SceneTab.js`) has `enter()` / `exit()`, and `exit()` puts away everything the tab owns (Reach, viewport clicks, 3D content, overlays), so nothing of one tab shows in the other.
+- Station 3 and the factory get their own ABB copy (`ModelTemplates.createInstance(config, { rig })`), so they never move or re-rig the Machine tab's robot.

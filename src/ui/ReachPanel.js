@@ -56,7 +56,8 @@ export class ReachPanel {
     this.pickingTip = false;
     this.mode = 'down';
     this.resolved = null;
-    this.hidden = false;
+    // Starts hidden; the Machine tab and the scene editor show it where it applies.
+    this.hidden = bar.hidden;
     this.explainTimer = null;
     this.lastTarget = null;
     this.query = (selector) => bar.querySelector(selector);
@@ -128,7 +129,7 @@ export class ReachPanel {
     else this.showReady();
   }
 
-  // Hidden while the Station runs: the station cycle drives the robot itself.
+  // Shown only in the Machine tab, and in the scene editor while a machine with joints is selected.
   setHidden(hidden) {
     this.hidden = hidden;
     this.bar.hidden = hidden;
