@@ -177,6 +177,7 @@ const sceneEditor = new SceneMode({
   picker,
   outline: new SelectionHighlight(),
   reachPanel: reach,
+  floor,
   templates,
   ui: {
     toolbar: $('[data-scene-toolbar]'),

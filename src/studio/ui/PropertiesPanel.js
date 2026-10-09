@@ -71,6 +71,11 @@ export class PropertiesPanel {
     if (this.editor.playing) {
       // While playing only what moves things is offered; the layout can't change.
       parts.push(element('p', 'prop-note', 'Playing: stop to move or change things. Robots can still be jogged.'));
+      // Extra groups that matter while playing (a robot's program, showing the running step).
+      this.extraSections.forEach((build) => {
+        const extra = build(item, runtime, this);
+        if (extra) parts.push(extra);
+      });
       if (runtime?.asset?.animations?.length) parts.push(this.animationGroup(item, runtime));
       if (rigged) parts.push(this.robotGroup(item, runtime), this.jointsGroup(runtime));
       this.container.replaceChildren(...parts);

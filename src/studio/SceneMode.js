@@ -16,6 +16,13 @@ import { PropertiesPanel } from './ui/PropertiesPanel.js';
 import { AddDrawer } from './ui/AddDrawer.js';
 import { ThumbnailRenderer } from './thumbnails.js';
 import { SelectionHighlight } from './SelectionHighlight.js';
+import { ProgramPanel } from './ui/ProgramPanel.js';
+import { ProgramMarkers } from './program/ProgramMarkers.js';
+import { ProgramRunner } from './program/ProgramRunner.js';
+import { ReachChecker } from './program/ReachChecker.js';
+import { targetFrame, targetFromHit, targetLabel } from './program/targets.js';
+import { resolveTool } from '../motion/InverseKinematics.js';
+import { reachFor } from './program/reachFor.js';
 
 const SAVE_DELAY_MS = 600;
 const POSE_CHECK_MS = 3000;
@@ -33,8 +40,9 @@ function isTyping(event) {
 // onSceneChange(scene) tells the tab the open scene's name or contents changed; onScenesSaved()
 // that the list of saved scenes may have changed.
 export class SceneMode {
-  constructor({ scene, cameraManager, controls, renderer, picker, outline, reachPanel, templates, ui, onStatus, onError, onEditInMachine, onEnvironmentChange, onSceneChange, onScenesSaved }) {
+  constructor({ scene, cameraManager, controls, renderer, picker, outline, reachPanel, floor, templates, ui, onStatus, onError, onEditInMachine, onEnvironmentChange, onSceneChange, onScenesSaved }) {
     this.scene = scene;
+    this.floor = floor;
     this.cameraManager = cameraManager;
     this.controls = controls;
     this.picker = picker;
@@ -68,6 +76,16 @@ export class SceneMode {
       onFrame: (id) => this.frame(id),
       iconFor: (item, runtime) => this.iconFor(item, runtime),
     });
+    // Robot programs: what each robot does when the scene plays.
+    this.programMarkers = new ProgramMarkers(scene);
+    this.programPanel = new ProgramPanel({
+      editor: this.editor,
+      markers: this.programMarkers,
+      checker: new ReachChecker(),
+      pickTarget: (options) => this.startTargetPick(options),
+      previewReach: (itemId, point, orient) => this.previewReach(itemId, point, orient),
+      runnerFor: (itemId) => this.runners?.get(itemId) || null,
+    });
     this.properties = new PropertiesPanel({
       container: ui.properties,
       editor: this.editor,
@@ -77,6 +95,7 @@ export class SceneMode {
       iconFor: (item, runtime) => this.iconFor(item, runtime),
       extraSections: [
         (item, runtime, panel) => this.paramsSection(item, runtime, panel),
+        (item, runtime, panel) => this.programPanel.section(item, runtime, panel),
         (item, runtime, panel) => this.connectionsSection(item, runtime, panel),
         (item, runtime, panel) => this.physicsSection(item, runtime, panel),
       ],
@@ -109,6 +128,7 @@ export class SceneMode {
       if (type === 'history') this.updateHistoryButtons();
       if (type === 'selection') {
         if (this.attachPick && this.attachPick.item.id !== this.editor.selectedId) this.endAttachPick();
+        if (this.targetPick && this.targetPick.robotId !== this.editor.selectedId) this.endTargetPick();
         this.bindReach();
         this.updateGuides();
       }
@@ -287,7 +307,7 @@ export class SceneMode {
 
   // Settings of a catalog part (length, speed…). Changing one rebuilds the part.
   paramsSection(item, runtime, panel) {
-    if (item.source.kind !== 'catalog') return null;
+    if (item.source.kind !== 'catalog' || this.editor.playing) return null;
     const definition = getComponent(item.source.id);
     const specs = Object.entries(definition?.params || {});
     if (!specs.length) return null;
@@ -334,7 +354,7 @@ export class SceneMode {
 
   // Putting a tool on a robot, or making an object move along with another one (or one robot joint).
   connectionsSection(item, runtime, panel) {
-    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing') return null;
+    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing' || this.editor.playing) return null;
     const { editor } = this;
     const linked = Boolean(item.mount || item.attach);
     const mountAnchor = anchorsOf(runtime).find((anchor) => anchor.type === 'tool-mount');
@@ -409,7 +429,7 @@ export class SceneMode {
 
   // How the object behaves when the scene plays; models can be made solid.
   physicsSection(item, runtime, panel) {
-    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing') return null;
+    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing' || this.editor.playing) return null;
     const text = describeBody(item, runtime);
     if (runtime.kind !== 'model' && !text) return null;
     const { node, body } = panel.group('physics', 'When playing', { open: false });
@@ -459,6 +479,7 @@ export class SceneMode {
     this.simulation = simulation;
     this.startingPlay = false;
     this.editor.playing = true;
+    this.startPrograms(simulation);
     this.editor.updateGizmo();
     this.editor.emit('selection');
     this.updatePlayButton();
@@ -466,6 +487,8 @@ export class SceneMode {
 
   stopPlaying() {
     if (!this.simulation) return;
+    this.runners?.forEach((runner) => runner.stop());
+    this.runners = null;
     this.simulation.stop();
     this.simulation = null;
     this.editor.playing = false;
@@ -742,9 +765,10 @@ export class SceneMode {
     document.addEventListener('keydown', (event) => {
       if (!this.active || isTyping(event) || this.drawer.placing) return;
       const { editor } = this;
-      if (event.key === 'Escape' && this.attachPick) {
+      if (event.key === 'Escape' && (this.attachPick || this.targetPick)) {
         event.preventDefault();
         this.endAttachPick();
+        this.endTargetPick();
         return;
       }
       if (event.key === '?' || (event.key === 'Escape' && !this.ui.helpPanel.hidden)) {
@@ -768,7 +792,8 @@ export class SceneMode {
       else if (command && key === 'd' && selected) editor.duplicate(selected);
       else if (command && key === 's') this.saveNow();
       else if (command) handled = false;
-      else if ((key === 'delete' || key === 'backspace') && selected) editor.removeItems([selected]);
+      // Not while working in the Selected panel (e.g. on a program step): that would delete the robot.
+      else if ((key === 'delete' || key === 'backspace') && selected && !event.target.closest?.('.scene-selected-body')) editor.removeItems([selected]);
       else if (key === 'f') this.frame(selected);
       else if (key === 'r' && selected) editor.turn(event.shiftKey ? -90 : 90);
       else if (key === 'q') this.setTool('select');
@@ -837,6 +862,88 @@ export class SceneMode {
     this.updateGuides();
   }
 
+  // ---- Robot programs ------------------------------------------------------------------------------
+
+  // Every robot with a program starts it when the scene plays.
+  startPrograms(simulation) {
+    this.runners = new Map();
+    this.reportedErrors = new Set();
+    this.editor.items.forEach((item) => {
+      const runtime = this.editor.runtimes.get(item.id);
+      if (!item.program?.steps?.length || item.hidden || !runtime?.asset?.rig) return;
+      this.runners.set(item.id, new ProgramRunner({ editor: this.editor, simulation, itemId: item.id, onChange: (runner) => this.programChanged(runner) }));
+    });
+    this.runners.forEach((runner) => runner.start());
+  }
+
+  // A robot that had to stop says why (once), over the 3D view.
+  programChanged(runner) {
+    if (!runner.error || this.reportedErrors?.has(runner.itemId)) return;
+    this.reportedErrors.add(runner.itemId);
+    this.onError?.(`${runner.name} stopped: ${runner.error.message}`);
+  }
+
+  // The next click in the view chooses a spot for a program step (snapping to conveyor ends and
+  // tops of things), on another object or the floor.
+  startTargetPick({ purpose, onPicked }) {
+    this.endAttachPick();
+    this.endTargetPick();
+    const { editor } = this;
+    const robotId = editor.selectedId;
+    const own = new Set([robotId, ...dependentsOf(editor.document, robotId)]);
+    const resolve = (hit) => {
+      const target = targetFromHit(editor, hit, this.floor);
+      return target && !(target.item && own.has(target.item)) ? target : null;
+    };
+    this.targetPick = { purpose, robotId, label: null };
+    this.picker.setHandler((hit) => {
+      const target = resolve(hit);
+      if (!target) {
+        this.onStatus?.('Click a spot on another object, or on the floor. Esc cancels.');
+        return;
+      }
+      this.endTargetPick();
+      onPicked(target);
+    }, () => [editor.root, this.floor].filter(Boolean), {
+      owner: 'program-target',
+      hover: (hit) => {
+        if (!this.targetPick) return;
+        const target = resolve(hit);
+        this.targetPick.label = target ? targetLabel(editor, target) : null;
+        this.programMarkers.showHover(target ? targetFrame(editor, target)?.position : null);
+        this.updateGuides();
+      },
+      onRelease: () => this.endTargetPick({ released: true }),
+    });
+    this.updateGuides();
+  }
+
+  endTargetPick({ released = false } = {}) {
+    if (!this.targetPick) return;
+    this.targetPick = null;
+    this.programMarkers.clear();
+    if (!released && this.picker.owner === 'program-target') this.picker.setHandler(null);
+    this.updateGuides();
+  }
+
+  // "Show me": moves the robot's tool tip to a step's spot now, while editing.
+  async previewReach(itemId, point, orient = 'down') {
+    if (!point || this.editor.playing) return;
+    const asset = this.editor.runtimes.get(itemId)?.asset;
+    const rig = asset?.rig;
+    const tool = rig?.tools[0] ? resolveTool(rig, rig.tools[0]) : null;
+    if (!tool) {
+      this.onError?.('This robot has no tool tip yet: put a gripper on it, or set its tool tip with Reach → Tool tip.');
+      return;
+    }
+    const result = reachFor(rig, tool, point, orient === 'any' ? null : new THREE.Vector3(0, -1, 0));
+    if (!result.reached) {
+      this.onError?.('The robot can\'t reach that spot with its tool pointing that way.');
+      return;
+    }
+    await asset.player.moveTo(result.values, { label: 'Showing the spot' });
+  }
+
   // ---- Guidance: empty scene card, hint line, help -------------------------------------------------
 
   bindGuides() {
@@ -869,6 +976,10 @@ export class SceneMode {
   hintText() {
     const { editor } = this;
     if (editor.playing) return 'Playing: conveyors run and boxes fall. Stop (Ctrl+Enter) puts everything back.';
+    if (this.targetPick) {
+      const { purpose, label } = this.targetPick;
+      return `Click where to ${purpose}${label ? `: ${label}` : ' (on an object or the floor)'} · Esc cancels`;
+    }
     if (this.attachPick) {
       const { item, label } = this.attachPick;
       return `Click what ${item.name} should move with${label ? `: ${label}` : ''} · Esc cancels`;
@@ -979,6 +1090,8 @@ export class SceneMode {
     clearInterval(this.poseTimer);
     this.active = false;
     this.endAttachPick();
+    this.endTargetPick();
+    this.programPanel.detach();
     this.drawer.setOpen(false);
     this.ui.toolbar.hidden = true;
     this.setHelpOpen(false);
@@ -1000,6 +1113,9 @@ export class SceneMode {
 
   update(deltaTime) {
     if (!this.active) return;
+    // Programs decide first, robots then move, and physics follows (held boxes go with the tool).
+    this.runners?.forEach((runner) => runner.update(deltaTime));
+    this.editor.update(deltaTime);
     if (this.simulation) {
       this.simulation.step(deltaTime);
       this.playTime = (this.playTime || 0) + deltaTime;
@@ -1009,7 +1125,7 @@ export class SceneMode {
         this.ui.playStatus.textContent = `Playing · ${count} box${count === 1 ? '' : 'es'}`;
       }
     }
-    this.editor.update(deltaTime);
     this.properties.update();
+    this.programPanel.update();
   }
 }

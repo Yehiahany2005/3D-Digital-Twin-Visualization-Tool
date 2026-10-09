@@ -35,7 +35,9 @@ The sidebar has two tabs that share one 3D view. The menu in the header follows 
   - **Built-in scenes**: the lubricant line (Factory, and Stations 1, 2 and 3 on their own), made in
     code. Start, Reset and Speed run them; a live status shows in the sidebar. They can't be edited.
   - **My scenes**: scenes you build by drag and drop (Add, move, turn, mount tools, Play with
-    physics). Kept in this browser; Export makes a `.dtscene` file to share.
+    physics). Each robot can have a **Program** (reach, grip, release, wait for a box, repeat
+    across a grid…) that it runs when you press Play; **Pick & place** writes a whole palletizing
+    cycle for you. Kept in this browser; Export makes a `.dtscene` file to share.
 
 Code layout: `src/main.js` (shared view, tab switching, frame loop), `src/app/` (the two tabs),
 `src/station/` (built-in scenes), `src/studio/` (scene editor), `src/ui/` (Machine panels and

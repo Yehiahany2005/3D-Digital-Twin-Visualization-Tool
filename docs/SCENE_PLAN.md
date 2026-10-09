@@ -470,3 +470,35 @@ stats, jargon). It now shows what matters for the task at hand:
   for a robot a second list picks the whole robot or one of its axes. Base movement joints are no
   longer offered.
 
+### 9.10 Step 2: robot programs (2026-10-09)
+
+Each robot placed in a scene has a **Program** (Selected → Program): the steps it runs when the
+scene plays. It is saved on the robot's item in the scene (`item.program`), because its steps point
+at things in that scene; the robot's own poses and sequences (Machine tab → Animation Setup) are
+available as steps too.
+
+| Step | What it does |
+|---|---|
+| Reach | Tool tip to a spot (a conveyor end, a pallet top, a clicked point), to **the box waiting at a spot**, or to **the next spot on the grid**; "come from above" lifts, crosses at one safe height and comes straight down (a carried box clears boxes beside the goal). Holding a box, the spot is where the box is put down. |
+| Grip / Release | Picks up the box the tool tip is touching (it follows the tool and pushes other boxes) / lets go of it. A mounted gripper's light shows the state. |
+| Wait for a box | Until a box rests at a spot (e.g. against the conveyor's end stop). |
+| Repeat across a grid | Runs the steps inside once per spot: columns × rows × layers on a surface, filled layer by layer; a placed box is turned square with the surface. |
+| Go to pose, Play sequence, Wait, Repeat, Conveyor on/off | As named. |
+
+**Pick & place** writes the whole cycle (home → grid { wait for box → reach box → grip → reach grid
+spot → release } → home) from two choices; box size comes from the scene's box source.
+
+While editing, the open step's targets are drawn in the view (dots, ghost boxes per grid spot):
+green when the robot can reach them pointing down, red when not, worked out a few at a time between
+frames (`ReachChecker`). "Show me" moves the robot there. While playing, the running step is lit;
+a robot that can't do a step stops with the reason on that step (and over the view).
+
+Code: `src/studio/program/` (Program.js model + editing, targets.js, ProgramRunner.js,
+reachFor.js, ReachChecker.js, ProgramMarkers.js), `src/studio/ui/ProgramPanel.js`; physics hooks
+(box at a spot, box under the tool, hold, release, conveyor on/off) in `Simulation.js`. Tests:
+`Program.test.js`, `ProgramRunner.test.js` (a gantry picks two boxes onto a 2-spot grid, with
+physics), and the solid-shape tests.
+
+Measured in the browser (ABB IRB 6760 + vacuum gripper, box source → conveyor from the side,
+pallet): boxes picked at the end stop and put on grid spots 1, 2, 3 in turn, no errors.
+
