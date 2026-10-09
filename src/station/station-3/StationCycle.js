@@ -3,7 +3,16 @@ import { createProceduralWorker } from './ProceduralWorker.js';
 
 const GRIP_TOLERANCE = 0.035;
 const CONVEYOR_SPEED = 0.7;
-const TOOL_OFFSET = new THREE.Vector3(0, -0.275, 0);
+// Suction tool, in the gripper's own frame: it points along local −Y.
+const TOOL_AXIS = new THREE.Vector3(0, -1, 0);
+// Vacuum cup lip sits this far above the top surface at contact (no penetration).
+const CONTACT_GAP = 0.001;
+const APPROACH_HEIGHT = 0.3;
+const LIFT_HEIGHT = 0.52;
+// Carried box bottom clears already stacked boxes by this much when swinging in.
+const CARRY_CLEARANCE = 0.12;
+// Orientation error weight in the IK (metres per radian of tool rotation).
+const ORIENTATION_WEIGHT = 0.6;
 // Fork height above the wrap deck once the pallet is released: forks drop
 // clear of the deck boards but stay above the pallet's bottom boards.
 const FORK_RELEASE_HEIGHT = 0.015;
@@ -14,6 +23,51 @@ function lerpPose(from, to, progress) {
     id,
     THREE.MathUtils.lerp(from[id] ?? 0, to[id], progress),
   ]));
+}
+
+// Catmull-Rom through a list of joint poses, progress 0…1 across the whole list.
+function samplePosePath(poses, progress) {
+  const segments = poses.length - 1;
+  const scaled = THREE.MathUtils.clamp(progress, 0, 1) * segments;
+  const index = Math.min(Math.floor(scaled), segments - 1);
+  const t = scaled - index;
+  const p0 = poses[Math.max(index - 1, 0)];
+  const p1 = poses[index];
+  const p2 = poses[index + 1];
+  const p3 = poses[Math.min(index + 2, segments)];
+  return Object.fromEntries(Object.keys(p2).map((id) => {
+    const a = p0[id] ?? p1[id];
+    const b = p1[id];
+    const c = p2[id];
+    const d = p3[id] ?? c;
+    const value = 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
+    return [id, value];
+  }));
+}
+
+// Rotation vector (axis × angle, radians) of a quaternion.
+function rotationVector(quaternion) {
+  const q = quaternion.w < 0 ? new THREE.Quaternion(-quaternion.x, -quaternion.y, -quaternion.z, -quaternion.w) : quaternion;
+  const sinHalf = Math.hypot(q.x, q.y, q.z);
+  const scale = sinHalf < 1e-9 ? 2 : (2 * Math.atan2(sinHalf, q.w)) / sinHalf;
+  return new THREE.Vector3(q.x, q.y, q.z).multiplyScalar(scale);
+}
+
+// Solves the small dense system A·x = b (Gaussian elimination with partial pivoting).
+function solveLinear(matrix, vector) {
+  const size = vector.length;
+  const rows = matrix.map((row, index) => [...row, vector[index]]);
+  for (let column = 0; column < size; column += 1) {
+    let pivot = column;
+    for (let row = column + 1; row < size; row += 1) if (Math.abs(rows[row][column]) > Math.abs(rows[pivot][column])) pivot = row;
+    [rows[column], rows[pivot]] = [rows[pivot], rows[column]];
+    for (let row = 0; row < size; row += 1) {
+      if (row === column) continue;
+      const factor = rows[row][column] / rows[column][column];
+      for (let k = column; k <= size; k += 1) rows[row][k] -= factor * rows[column][k];
+    }
+  }
+  return rows.map((row, index) => row[size] / row[index]);
 }
 
 function lerpWorkerPose(from, to, progress) {
@@ -45,7 +99,9 @@ export function createVacuumGripper() {
   bellows.position.y = -0.245;
   bellows.castShadow = true;
   root.add(bellows);
-  const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.095, 0.055, 24), rubber);
+  const cupHeight = 0.055;
+  const cupLipRadius = 0.095;
+  const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.12, cupLipRadius, cupHeight, 24), rubber);
   cup.name = 'Vacuum suction cup';
   cup.position.y = -0.305;
   cup.castShadow = true;
@@ -54,7 +110,11 @@ export function createVacuumGripper() {
   indicator.name = 'Vacuum state indicator';
   indicator.position.set(0, 0.045, 0);
   root.add(indicator);
-  root.userData.suctionPoint = TOOL_OFFSET.clone();
+  // Suction point = centre of the cup lip; mount face = top of the mounting body.
+  root.userData.suctionPoint = new THREE.Vector3(0, cup.position.y - cupHeight / 2, 0);
+  root.userData.toolAxis = TOOL_AXIS.clone();
+  root.userData.cupLipRadius = cupLipRadius;
+  root.userData.mountOffset = body.geometry.parameters.height / 2;
   root.userData.setState = (state) => {
     const color = {
       OPEN: 0x65727b,
@@ -98,8 +158,10 @@ export class StationCycle {
     this.bottomHeight = 0;
     this.rotation = new THREE.Euler();
     this.attached = false;
-    this.attachedOffset = new THREE.Vector3();
-    this.attachedQuaternion = new THREE.Quaternion();
+    this.toolOrientation = new THREE.Quaternion();
+    this.boxTopOffset = 0;
+    /** Where the cup grips the current box, in the box's own frame (set when planning). */
+    this.plannedGrasp = null;
     this.poseFrom = null;
     this.poseTo = null;
     this.elapsed = 0;
@@ -166,7 +228,7 @@ export class StationCycle {
   }
 
   getBoxGraspWorld() {
-    return this.box.root.localToWorld(this.box.references.grasp.clone());
+    return this.box.root.localToWorld((this.plannedGrasp ?? this.box.references.grasp).clone());
   }
 
   getBoxCenter() {
@@ -232,41 +294,58 @@ export class StationCycle {
     return targetPoint.clone().sub(this.gripper.userData.suctionPoint.clone().applyQuaternion(quaternion));
   }
 
-  solveTarget(targetPoint, seed = this.rig.getPose()) {
+  // Tool frame the robot holds while handling boxes: cup axis straight down, wrist roll
+  // taken from the home pose so the tool turns as little as possible.
+  getToolOrientation() {
+    this.rig.setValues(this.home);
+    this.robot.updateMatrixWorld(true);
+    const homeQuaternion = this.gripper.getWorldQuaternion(new THREE.Quaternion());
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(homeQuaternion).setY(0);
+    if (forward.lengthSq() < 1e-6) forward.set(1, 0, 0).applyQuaternion(homeQuaternion).setY(0);
+    const yaw = Math.atan2(forward.x, forward.z);
+    // Gripper local −Y (the tool axis) maps to world −Y for any pure yaw.
+    return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+  }
+
+  // Damped least squares on the suction point AND the gripper's full orientation, so the
+  // cup arrives flat on the box and a held box keeps its pose relative to the cup.
+  solveTarget(targetPoint, seed = this.rig.getPose(), orientation = this.toolOrientation) {
     const ids = this.rig.joints.filter((joint) => !joint.driven).map((joint) => joint.id);
     const pose = Object.fromEntries(ids.map((id) => [id, seed[id] ?? this.rig.getValue(id)]));
-    for (let iteration = 0; iteration < 120; iteration += 1) {
+    const residual = () => {
+      const position = targetPoint.clone().sub(this.getSuctionWorld());
+      const current = this.gripper.getWorldQuaternion(new THREE.Quaternion());
+      const rotation = rotationVector(orientation.clone().multiply(current.invert()));
+      return { position, rotation, vector: [position.x, position.y, position.z, ...rotation.clone().multiplyScalar(ORIENTATION_WEIGHT).toArray()] };
+    };
+    const nudge = 0.05;
+    let bestError = Infinity;
+    let stalled = 0;
+    for (let iteration = 0; iteration < 200; iteration += 1) {
       this.rig.setValues(pose);
-      const current = this.getSuctionWorld();
-      const error = targetPoint.clone().sub(current);
-      if (error.length() < 0.006) break;
+      const error = residual();
+      if (error.position.length() < 0.0004 && error.rotation.length() < THREE.MathUtils.degToRad(0.05)) break;
+      // Give up on a seed that has stopped improving (pinned on a joint limit or out of reach).
+      const size = Math.hypot(...error.vector);
+      if (size < bestError * 0.999) {
+        bestError = size;
+        stalled = 0;
+      } else if ((stalled += 1) > 12) break;
       const columns = ids.map((id) => {
-        this.rig.setValues({ ...pose, [id]: pose[id] + 0.5 });
-        const displaced = this.getSuctionWorld().sub(current)
-          .multiplyScalar(1 / THREE.MathUtils.degToRad(0.5));
-        this.rig.setValues(pose);
-        return displaced;
+        // Nudge towards the inside of the range so a joint resting on a limit still shows its effect.
+        const step = pose[id] + nudge > this.rig.jointsById.get(id).max ? -nudge : nudge;
+        this.rig.setValues({ ...pose, [id]: pose[id] + step });
+        const moved = residual().vector;
+        return error.vector.map((value, row) => (value - moved[row]) / THREE.MathUtils.degToRad(step));
       });
-      const damping = 0.018;
-      const jjt = new THREE.Matrix3().set(
-        damping, 0, 0,
-        0, damping, 0,
-        0, 0, damping,
-      );
-      columns.forEach((column) => {
-        jjt.elements[0] += column.x * column.x;
-        jjt.elements[1] += column.x * column.y;
-        jjt.elements[2] += column.x * column.z;
-        jjt.elements[3] += column.y * column.x;
-        jjt.elements[4] += column.y * column.y;
-        jjt.elements[5] += column.y * column.z;
-        jjt.elements[6] += column.z * column.x;
-        jjt.elements[7] += column.z * column.y;
-        jjt.elements[8] += column.z * column.z;
-      });
-      const correction = error.applyMatrix3(jjt.invert());
+      this.rig.setValues(pose);
+      const damping = 0.012;
+      const product = error.vector.map((_, row) => error.vector.map((__, column) => (
+        columns.reduce((sum, item) => sum + item[row] * item[column], 0) + (row === column ? damping * damping : 0)
+      )));
+      const y = solveLinear(product, error.vector);
       ids.forEach((id, index) => {
-        const delta = THREE.MathUtils.clamp(columns[index].dot(correction), -0.12, 0.12);
+        const delta = THREE.MathUtils.clamp(columns[index].reduce((sum, value, row) => sum + value * y[row], 0), -0.12, 0.12);
         pose[id] = this.rig.clamp(this.rig.jointsById.get(id), pose[id] + THREE.MathUtils.radToDeg(delta));
       });
     }
@@ -274,35 +353,148 @@ export class StationCycle {
     return pose;
   }
 
+  isSolved(targetPoint, orientation = this.toolOrientation) {
+    const current = this.gripper.getWorldQuaternion(new THREE.Quaternion());
+    return this.getSuctionWorld().distanceTo(targetPoint) < 0.002
+      && THREE.MathUtils.radToDeg(current.angleTo(orientation)) < 0.25;
+  }
+
+  // Seeds for poses over the pallet: the arm turned to several base angles, reaching
+  // forward or leaning back over itself.
+  getStackSeeds(first) {
+    const seeds = first === this.home ? [this.home] : [first, this.home];
+    [-150, -100, -50, 0, 50, 100, 150].forEach((axis1) => {
+      seeds.push({ ...this.home, axis1, axis2: 30, axis3: 0, axis4: 0, axis5: 60, axis6: axis1 });
+      seeds.push({ ...this.home, axis1, axis2: -45, axis3: 45, axis4: 0, axis5: 100, axis6: axis1 });
+    });
+    return seeds;
+  }
+
+  // Straight tool-point line sampled into IK poses (tool orientation held).
+  planPath(from, to, seed, steps = 8) {
+    const poses = [];
+    poses.solved = true;
+    let previous = seed;
+    for (let step = 1; step <= steps; step += 1) {
+      const point = from.clone().lerp(to, step / steps);
+      previous = this.solveTarget(point, previous);
+      poses.solved &&= this.isSolved(point);
+      poses.push(previous);
+    }
+    return poses;
+  }
+
+  // Swing between two solved poses along their joint-space route, re-solving each sample
+  // so the tool stays vertical and the carried box never drops below the swing height.
+  planSwing(from, to, fromPose, toPose, steps = 12) {
+    const poses = [];
+    for (let step = 1; step < steps; step += 1) {
+      const t = step / steps;
+      const seed = lerpPose(fromPose, toPose, t);
+      this.rig.setValues(seed);
+      const point = this.getSuctionWorld().setY(THREE.MathUtils.lerp(from.y, to.y, t));
+      poses.push(this.solveTarget(point, seed));
+    }
+    poses.push(toPose);
+    return poses;
+  }
+
+  // Height of the box's real top surface (tape included) above its centre.
+  measureBoxTop() {
+    this.box.root.updateMatrixWorld(true);
+    const bounds = new THREE.Box3();
+    const visit = (object) => {
+      // Debug reference markers and hidden parts are not cardboard the cup can touch.
+      if (!object.visible || object.name === 'ReferencePointsAndAxes') return;
+      if (object.isMesh) bounds.expandByObject(object);
+      object.children.forEach(visit);
+    };
+    visit(this.box.root);
+    return bounds.isEmpty() ? this.boxGraspLocal.y : bounds.max.y - this.getBoxCenter().y;
+  }
+
+  // Grip points on the box top (box frame XZ): the centre first, then edge and corner
+  // points as far out as the cup lip allows, for cells the arm can't reach centrally.
+  getGraspOffsets() {
+    const margin = this.gripper.userData.cupLipRadius + 0.01;
+    const x = Math.max(this.boxDefinition.length / 2 - margin, 0);
+    const z = Math.max(this.boxDefinition.width / 2 - margin, 0);
+    const offsets = [new THREE.Vector3()];
+    [-1, 0, 1].forEach((sx) => [-1, 0, 1].forEach((sz) => {
+      if (sx || sz) offsets.push(new THREE.Vector3(sx * x, 0, sz * z));
+    }));
+    return offsets;
+  }
+
+  // Solves the placing contact, then the vertical column upward from it, so lowering and
+  // retracting stay in one arm configuration. Returns the first fully solved column, else
+  // the closest attempt.
+  planStackColumn(contactPoint, carryPoint, seeds) {
+    let best = null;
+    for (const seed of seeds) {
+      const pose = this.solveTarget(contactPoint, seed);
+      const error = this.getSuctionWorld().distanceTo(contactPoint);
+      if (!this.isSolved(contactPoint)) {
+        if (!best || (!best.solved && error < best.error)) best = { pose, error, solved: false, path: null };
+        continue;
+      }
+      const path = this.planPath(contactPoint, carryPoint, pose, 8);
+      if (!best?.solved || path.solved) best = { pose, error, solved: path.solved, path };
+      if (path.solved) break;
+    }
+    best.path ??= this.planPath(contactPoint, carryPoint, best.pose, 8);
+    return best;
+  }
+
   prepareTargets() {
-    const grasp = this.getBoxGraspWorld();
-    const robotBase = this.rig.root.localToWorld(new THREE.Vector3());
-    const sideDirection = grasp.clone().sub(robotBase);
-    sideDirection.y = 0;
-    sideDirection.normalize();
-    const approach = grasp.clone().addScaledVector(sideDirection, -0.28);
-    approach.y += 0.34;
-    const lift = grasp.clone();
-    lift.y += 0.52;
+    if (!this.attached) this.boxTopOffset = this.measureBoxTop();
+    this.toolOrientation = this.getToolOrientation();
     this.stackTarget = this.getStackTarget(this.boxNumber);
     this.validateStackTarget(this.stackTarget);
-    const stackGrasp = this.stackTarget.clone().add(this.boxGraspLocal);
-    const stackCarry = stackGrasp.clone();
-    stackCarry.y += 0.42;
-    const approachPose = this.solveTarget(approach);
-    const pickupPose = this.solveTarget(grasp);
-    const liftPose = this.solveTarget(lift);
-    const stackCarryPose = this.solveTarget(stackCarry, this.home);
-    const stackLowerPose = this.solveTarget(stackGrasp);
-    if (this.getSuctionWorld().distanceTo(stackGrasp) > 0.01) {
-      this.solveTarget(stackGrasp, stackLowerPose);
+    const contactLift = this.boxTopOffset + CONTACT_GAP;
+    const stackContact = this.stackTarget.clone().setY(this.stackTarget.y + contactLift);
+    const stackCarry = stackContact.clone().setY(stackContact.y + this.boxDefinition.height + CARRY_CLEARANCE);
+
+    // The placing contact is the hardest reach, so it picks the grip point on the box top.
+    let column = null;
+    let graspOffset = null;
+    // A box already in the cup (a re-plan) keeps the grip point it was picked with.
+    const offsets = this.attached && this.plannedGrasp
+      ? [new THREE.Vector3(this.plannedGrasp.x, 0, this.plannedGrasp.z)]
+      : this.getGraspOffsets();
+    for (const offset of offsets) {
+      const seeds = column ? [column.pose, this.home] : this.getStackSeeds(this.home);
+      const attempt = this.planStackColumn(stackContact.clone().add(offset), stackCarry.clone().add(offset), seeds);
+      if (!column || (attempt.solved && !column.solved) || (!column.solved && attempt.error < column.error)) {
+        column = attempt;
+        graspOffset = offset;
+      }
+      if (column.solved) break;
     }
+    if (!column.solved) console.warn(`Box ${this.boxNumber + 1}: no flat-cup path above the stack cell.`);
+    this.plannedGrasp = new THREE.Vector3(graspOffset.x, contactLift, graspOffset.z);
+
+    const contact = this.getBoxGraspWorld();
+    const hover = contact.clone().setY(contact.y + APPROACH_HEIGHT);
+    // Rise straight up to at least the swing height so the carried box never sweeps
+    // over the stack below the cell it is going to.
+    const lift = contact.clone().setY(Math.max(contact.y + LIFT_HEIGHT, stackCarry.y));
+    const approachPose = this.solveTarget(hover, this.home);
+    const pickupPath = this.planPath(hover, contact, approachPose, 6);
+    const liftPath = this.planPath(contact, lift, pickupPath.at(-1), 6);
+    const liftPose = liftPath.at(-1);
+    const contactPose = column.pose;
+    const retractPath = column.path;
+    const carryPose = retractPath.at(-1);
+    const lowerPath = [...retractPath.slice(0, -1).reverse(), contactPose];
+    const carryPath = this.planSwing(lift, stackCarry.clone().add(graspOffset), liftPose, carryPose, 12);
     this.targets = {
       approach: approachPose,
-      pickup: pickupPose,
-      lift: liftPose,
-      stackCarry: stackCarryPose,
-      stackLower: this.getJointPose(),
+      pickup: pickupPath,
+      lift: liftPath,
+      stackCarry: carryPath,
+      stackLower: lowerPath,
+      retract: retractPath,
     };
     this.rig.setValues(this.home);
   }
@@ -371,6 +563,7 @@ export class StationCycle {
     this.floorBoxes = [];
     this.boxNumber = 0;
     this.stackTarget = null;
+    this.plannedGrasp = null;
     this.setState('IDLE', { conveyor: 'STOPPED', robot: 'HOME', box: 'ON BELT', gripper: 'OPEN' });
   }
 
@@ -606,10 +799,7 @@ export class StationCycle {
       console.warn(`Grip prevented: TCP-to-grasp distance ${this.distance.toFixed(3)} m exceeds ${GRIP_TOLERANCE} m.`);
       return false;
     }
-    const suction = this.getSuctionWorld();
-    const boxWorldPosition = this.box.root.getWorldPosition(new THREE.Vector3());
-    this.attachedOffset.copy(boxWorldPosition).sub(suction);
-    this.attachedQuaternion.copy(this.box.root.getWorldQuaternion(new THREE.Quaternion()));
+    // Rigid hold: the box keeps its pose relative to the cup until released.
     this.gripper.attach(this.box.root);
     this.attached = true;
     this.setState('GRIP', { conveyor: 'STOPPED', robot: 'PICKING', box: 'GRIPPED', gripper: 'GRIPPING' });
@@ -657,6 +847,7 @@ export class StationCycle {
     this.box.root.position.copy(this.stationRoot.worldToLocal(expected.clone()));
     this.box.root.quaternion.identity();
     this.box.root.userData.stackIndex = this.boxNumber;
+    this.plannedGrasp = null;
     this.floorBoxes.push(this.box);
     this.boxNumber += 1;
     this.box = null;
@@ -699,13 +890,9 @@ export class StationCycle {
     if (!this.poseTo) return;
     this.elapsed = Math.min(this.elapsed + delta * this.speedMultiplier, this.duration);
     const progress = THREE.MathUtils.smoothstep(this.elapsed / Math.max(this.duration, 0.001), 0, 1);
-    this.rig.setValues(lerpPose(this.poseFrom, this.poseTo, progress));
-    if (this.attached && this.box) {
-      const targetWorldPosition = this.getSuctionWorld().add(this.attachedOffset);
-      const parentWorldQuaternion = this.box.root.parent.getWorldQuaternion(new THREE.Quaternion());
-      this.box.root.position.copy(this.box.root.parent.worldToLocal(targetWorldPosition));
-      this.box.root.quaternion.copy(parentWorldQuaternion.invert().multiply(this.attachedQuaternion));
-    }
+    this.rig.setValues(Array.isArray(this.poseTo)
+      ? samplePosePath([this.poseFrom, ...this.poseTo], progress)
+      : lerpPose(this.poseFrom, this.poseTo, progress));
     if (this.box) this.distance = this.getSuctionWorld().distanceTo(this.getBoxGraspWorld());
     if (this.elapsed < this.duration) {
       this.onUpdate?.(this);
@@ -743,6 +930,9 @@ export class StationCycle {
       }
       this.beginHold('VERIFY_PLACEMENT', 0.16, { robot: 'PLACING', box: 'ON FLOOR', gripper: 'OPEN' });
     } else if (finished === 'VERIFY_PLACEMENT') {
+      // Lift the open cup straight off the placed box before swinging home.
+      this.beginMove('RETRACT', this.targets.retract, 0.8, { robot: 'RETURNING HOME', box: 'ON FLOOR', gripper: 'OPEN' });
+    } else if (finished === 'RETRACT') {
       this.beginMove('RETURN_HOME', this.home, 2.2, { robot: 'RETURNING HOME', box: 'ON FLOOR', gripper: 'OPEN' });
     } else if (finished === 'RETURN_HOME') {
       if (this.boxNumber >= this.layout.stack.columns * this.layout.stack.rows * this.layout.stack.layers) {
