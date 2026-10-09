@@ -1,19 +1,26 @@
 import * as THREE from 'three';
 import {
+  ArrowDownToDot,
   Box,
   CircleHelp,
   Clapperboard,
+  CopyPlus,
   Cpu,
   Crosshair,
   Download,
   Factory,
+  Focus,
+  Grid3x3,
   LayoutGrid,
   ListTree,
+  Maximize,
   MousePointer2,
   Move,
+  Pause,
   Play,
   PlayCircle,
   Plus,
+  RectangleHorizontal,
   Redo2,
   Rotate3d,
   RotateCw,
@@ -53,7 +60,7 @@ import './style.css';
 // This file builds the shared view, switches tabs and runs the frame loop. Each tab's exit()
 // puts away everything it owns, so nothing of one tab shows or reacts in the other.
 
-createIcons({ icons: { Box, CircleHelp, Clapperboard, Cpu, Crosshair, Download, Factory, LayoutGrid, ListTree, MousePointer2, Move, Play, PlayCircle, Plus, Redo2, Rotate3d, RotateCw, SlidersHorizontal, Square, TerminalSquare, Trash2, Undo2, Upload, Wrench, X } });
+createIcons({ icons: { ArrowDownToDot, Box, CircleHelp, Clapperboard, CopyPlus, Cpu, Crosshair, Download, Factory, Focus, Grid3x3, LayoutGrid, ListTree, Maximize, MousePointer2, Move, Pause, Play, PlayCircle, Plus, RectangleHorizontal, Redo2, Rotate3d, RotateCw, SlidersHorizontal, Square, TerminalSquare, Trash2, Undo2, Upload, Wrench, X } });
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -137,6 +144,51 @@ const view = {
   fitTo,
 };
 
+// The sidebar can be dragged wider (programs and properties get room) or narrower (more view).
+const SIDEBAR_KEY = 'digital-twin:sidebar-width';
+const SIDEBAR_DEFAULT = 320;
+function setupSidebarResizer() {
+  const workspace = $('.workspace');
+  const handle = $('[data-sidebar-resizer]');
+  const apply = (width, remember = true) => {
+    const clamped = Math.round(Math.min(Math.max(width, 260), Math.min(640, window.innerWidth * 0.55)));
+    workspace.style.setProperty('--sidebar-width', `${clamped}px`);
+    handle.setAttribute('aria-valuenow', String(clamped));
+    cameraManager.updateAspectRatio();
+    rendererManager.resize(container);
+    if (remember) {
+      try { window.localStorage.setItem(SIDEBAR_KEY, String(clamped)); } catch { /* not remembered */ }
+    }
+    return clamped;
+  };
+  let saved = null;
+  try { saved = Number(window.localStorage.getItem(SIDEBAR_KEY)); } catch { /* default width */ }
+  let width = apply(saved || SIDEBAR_DEFAULT, false);
+  handle.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    handle.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startWidth = width;
+    document.body.classList.add('is-resizing');
+    const move = (moveEvent) => { width = apply(startWidth + moveEvent.clientX - startX); };
+    const end = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', end);
+      document.body.classList.remove('is-resizing');
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+  });
+  handle.addEventListener('dblclick', () => { width = apply(SIDEBAR_DEFAULT); });
+  handle.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      width = apply(width + (event.key === 'ArrowRight' ? 16 : -16));
+    }
+  });
+}
+setupSidebarResizer();
+
 // ---- Tabs -----------------------------------------------------------------------------------
 
 const machine = new MachineTab({
@@ -195,6 +247,18 @@ const sceneEditor = new SceneMode({
     empty: $('[data-scene-empty]'),
     emptyAdd: $('[data-scene-empty-add]'),
     hint: $('[data-scene-hint]'),
+    pause: $('[data-scene-pause]'),
+    pauseLabel: $('[data-scene-pause-label]'),
+    speed: $('[data-scene-speed]'),
+    viewTools: $('[data-scene-view-tools]'),
+    viewButtons: $$('[data-scene-view]'),
+    gridToggle: $('[data-scene-grid]'),
+    toast: $('[data-scene-toast]'),
+    toastText: $('[data-scene-toast-text]'),
+    toastUndo: $('[data-scene-toast-undo]'),
+    hoverLabel: $('[data-scene-hover-label]'),
+    sceneCopy: $('[data-scene-copy]'),
+    explorerFilter: $('[data-explorer-filter]'),
     addButton: $('[data-scene-add]'),
     drawer: $('[data-add-drawer]'),
     explorerList: $('[data-explorer-list]'),

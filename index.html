@@ -282,6 +282,7 @@
               <section class="sidebar-card scene-objects-card" aria-label="Objects in this scene">
                 <div class="scene-name-row">
                   <input type="text" class="scene-name-input" data-scene-name autocomplete="off" aria-label="Scene name" title="Scene name: click to rename" />
+                  <button type="button" class="icon-button" data-scene-copy title="Save a copy of this scene (to try something without changing this one)"><i data-lucide="copy-plus" aria-hidden="true"></i></button>
                   <button type="button" class="icon-button" data-scene-export title="Export: save this scene and the imported models it uses as one .dtscene file, to keep or send"><i data-lucide="download" aria-hidden="true"></i></button>
                   <button type="button" class="icon-button is-danger" data-scene-delete title="Delete this scene from this browser"><i data-lucide="trash-2" aria-hidden="true"></i></button>
                 </div>
@@ -290,6 +291,7 @@
                   <span class="panel-title"><i data-lucide="list-tree" aria-hidden="true"></i>Objects</span>
                   <span class="editor-count" data-explorer-count></span>
                 </div>
+                <input type="search" class="explorer-filter" data-explorer-filter placeholder="Find an object…" aria-label="Find an object" autocomplete="off" hidden />
                 <ul class="explorer-list" data-explorer-list role="tree" aria-label="Objects in the scene"></ul>
               </section>
 
@@ -302,6 +304,8 @@
             </div>
           </div>
         </aside>
+
+        <div class="sidebar-resizer" data-sidebar-resizer role="separator" aria-orientation="vertical" aria-label="Sidebar width" tabindex="0" title="Drag to make the sidebar wider or narrower (double-click: back to normal)"></div>
 
         <section id="viewport" aria-label="3D viewport">
           <p class="viewport-status" data-asset-status role="status" hidden></p>
@@ -378,6 +382,13 @@
             <span class="toolbar-divider" aria-hidden="true"></span>
             <div class="scene-play">
               <button type="button" class="scene-play-button" data-scene-play title="Play: gravity, conveyors and box sources run. Stop puts everything back (Ctrl+Enter)"><i data-lucide="play" class="when-stopped" aria-hidden="true"></i><i data-lucide="square" class="when-playing" aria-hidden="true"></i><span data-scene-play-label>Play</span></button>
+              <button type="button" class="scene-pause-button" data-scene-pause hidden title="Pause / resume (Space)"><i data-lucide="pause" class="when-running" aria-hidden="true"></i><i data-lucide="play" class="when-paused" aria-hidden="true"></i><span data-scene-pause-label>Pause</span></button>
+              <select class="scene-speed" data-scene-speed hidden aria-label="Speed" title="How fast the scene plays">
+                <option value="0.5">½×</option>
+                <option value="1" selected>1×</option>
+                <option value="2">2×</option>
+                <option value="4">4×</option>
+              </select>
               <span class="scene-play-status" data-scene-play-status hidden></span>
             </div>
             <button type="button" class="scene-help-button" data-scene-help aria-expanded="false" aria-controls="scene-help" title="Mouse controls and keyboard shortcuts (?)"><i data-lucide="circle-help" aria-hidden="true"></i></button>
@@ -393,7 +404,9 @@
               <div><dt>Slide the view</dt><dd>Right-drag</dd></div>
               <div><dt>Zoom</dt><dd>Mouse wheel</dd></div>
               <div><dt>Select</dt><dd>Click an object</dd></div>
-              <div><dt>Frame selected</dt><dd><kbd>F</kbd> or double-click in Objects</dd></div>
+              <div><dt>More actions</dt><dd>Right-click an object or the floor</dd></div>
+              <div><dt>Zoom to selected · everything</dt><dd><kbd>F</kbd> · <kbd>Home</kbd></dd></div>
+              <div><dt>Change a number</dt><dd>Drag its label left / right</dd></div>
             </dl>
             <strong class="scene-help-subtitle">Keys</strong>
             <dl class="scene-help-list">
@@ -404,9 +417,12 @@
               <div><dt>Nudge one snap step</dt><dd>Arrow keys</dd></div>
               <div><dt>Move without snapping</dt><dd>Hold <kbd>Alt</kbd> while dragging</dd></div>
               <div><dt>Duplicate</dt><dd><kbd>Ctrl</kbd>+<kbd>D</kbd></dd></div>
+              <div><dt>Copy · Paste at the pointer</dt><dd><kbd>Ctrl</kbd>+<kbd>C</kbd> · <kbd>Ctrl</kbd>+<kbd>V</kbd></dd></div>
+              <div><dt>Rename</dt><dd><kbd>F2</kbd></dd></div>
               <div><dt>Delete</dt><dd><kbd>Delete</kbd></dd></div>
               <div><dt>Undo · Redo</dt><dd><kbd>Ctrl</kbd>+<kbd>Z</kbd> · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></dd></div>
               <div><dt>Play · Stop</dt><dd><kbd>Ctrl</kbd>+<kbd>Enter</kbd></dd></div>
+              <div><dt>Pause while playing</dt><dd><kbd>Space</kbd></dd></div>
               <div><dt>Deselect · cancel</dt><dd><kbd>Esc</kbd></dd></div>
             </dl>
           </div>
@@ -422,6 +438,21 @@
           </div>
 
           <p class="scene-hint" data-scene-hint hidden></p>
+
+          <div class="scene-view-tools" data-scene-view-tools role="group" aria-label="Camera" hidden>
+            <button type="button" class="icon-button" data-scene-view="all" title="See everything (Home)"><i data-lucide="maximize" aria-hidden="true"></i></button>
+            <button type="button" class="icon-button" data-scene-view="selected" title="Zoom to the selected object (F)"><i data-lucide="focus" aria-hidden="true"></i></button>
+            <button type="button" class="icon-button" data-scene-view="top" title="View from above"><i data-lucide="arrow-down-to-dot" aria-hidden="true"></i></button>
+            <button type="button" class="icon-button" data-scene-view="front" title="View from the front"><i data-lucide="rectangle-horizontal" aria-hidden="true"></i></button>
+            <button type="button" class="icon-button" data-scene-grid aria-pressed="true" title="Floor grid (1 m squares)"><i data-lucide="grid-3x3" aria-hidden="true"></i></button>
+          </div>
+
+          <div class="scene-toast" data-scene-toast role="status" hidden>
+            <span data-scene-toast-text></span>
+            <button type="button" data-scene-toast-undo><i data-lucide="undo-2" aria-hidden="true"></i>Undo</button>
+          </div>
+
+          <div class="scene-hover-label" data-scene-hover-label aria-hidden="true" hidden></div>
 
           <div class="add-drawer" data-add-drawer hidden>
             <div class="add-drawer-head">

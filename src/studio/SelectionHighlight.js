@@ -9,11 +9,11 @@ const ACCENT = 0x69c7d3;
 //
 // Same interface as RigHelpers' SelectionOutline: set(objects), clear(), update().
 export class SelectionHighlight {
-  constructor({ color = ACCENT } = {}) {
+  constructor({ color = ACCENT, opacity = 0.3 } = {}) {
     this.material = new THREE.MeshBasicMaterial({
       color,
       transparent: true,
-      opacity: 0.3,
+      opacity,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -1,

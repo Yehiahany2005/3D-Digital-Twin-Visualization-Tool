@@ -6,6 +6,7 @@ import {
 import { gridSurfaces, gridWorldSpots, sceneSpots, targetFrame, targetLabel } from '../program/targets.js';
 import { getComponent, resolveParams } from '../catalog/index.js';
 import { icon } from './icons.js';
+import { makeScrubbable } from './scrub.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -568,6 +569,7 @@ export class ProgramPanel {
       onChange(parsed);
     });
     input.addEventListener('keydown', (event) => { if (event.key === 'Enter') input.blur(); });
+    makeScrubbable(caption, input, { step, min, commit: onChange });
     wrapper.append(caption, input);
     return wrapper;
   }

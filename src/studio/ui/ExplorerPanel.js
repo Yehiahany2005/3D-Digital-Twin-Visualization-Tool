@@ -1,25 +1,52 @@
 import { parentOf } from '../SceneDocument.js';
 import { icon } from './icons.js';
 
+// Above this many objects, a search box helps find one.
+const FILTER_FROM = 7;
+
 // The scene's objects (like Roblox Studio's Explorer), with mounted and attached ones nested
-// under what they hang off. Click selects, double-click frames it in the view. The eye and
-// padlock show on hover, or stay visible while an object is hidden or locked.
+// under what they hang off. Click selects, double-click frames it in the view, right-click opens
+// its menu, and hovering a row lights the object up in the view. The eye and padlock show on
+// hover, or stay visible while an object is hidden or locked. Robots with a program get a badge.
 export class ExplorerPanel {
-  constructor({ list, count, editor, onFrame, iconFor }) {
+  constructor({ list, count, filter, editor, onFrame, iconFor, onContextMenu, onHover }) {
     this.list = list;
     this.count = count;
+    this.filter = filter;
     this.editor = editor;
     this.onFrame = onFrame;
     this.iconFor = iconFor;
+    this.onContextMenu = onContextMenu;
+    this.onHover = onHover;
     editor.onChange((type) => {
       if (type === 'document' || type === 'item-ready') this.render();
       else if (type === 'selection') this.updateSelection();
     });
+    filter?.addEventListener('input', () => this.render());
+    filter?.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && filter.value) {
+        event.stopPropagation();
+        filter.value = '';
+        this.render();
+      }
+    });
+    list.addEventListener('pointerleave', () => this.onHover?.(null));
   }
 
   render() {
     const { items } = this.editor;
     this.count.textContent = items.length ? String(items.length) : '';
+    if (this.filter) {
+      this.filter.hidden = items.length < FILTER_FROM;
+      if (this.filter.hidden) this.filter.value = '';
+    }
+    const query = this.filter?.value.trim().toLowerCase();
+    if (query) {
+      const matches = items.filter((item) => item.name.toLowerCase().includes(query));
+      this.list.replaceChildren(...(matches.length ? matches.map((item) => this.row(item, 0)) : [Object.assign(document.createElement('li'), { className: 'empty-state', textContent: `No object called "${this.filter.value.trim()}".` })]));
+      this.updateSelection();
+      return;
+    }
     if (!items.length) {
       const empty = document.createElement('li');
       empty.className = 'empty-state';
@@ -61,6 +88,14 @@ export class ExplorerPanel {
       loading.textContent = 'loading…';
       name.append(loading);
     }
+    const steps = item.program?.steps?.length;
+    if (steps) {
+      const badge = document.createElement('span');
+      badge.className = 'explorer-badge';
+      badge.title = 'Has a program: it works when the scene plays';
+      badge.append(icon('ListVideo', 12));
+      name.append(badge);
+    }
     if (item.mount || item.attach) {
       name.title = `${item.name}: ${item.mount ? 'mounted on' : 'follows'} ${this.editor.item(parentOf(item))?.name || 'another item'}`;
     } else {
@@ -68,6 +103,12 @@ export class ExplorerPanel {
     }
     name.addEventListener('click', () => this.editor.select(item.id));
     name.addEventListener('dblclick', () => this.onFrame?.(item.id));
+    row.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      this.editor.select(item.id);
+      this.onContextMenu?.(item.id, event);
+    });
+    row.addEventListener('pointerenter', () => this.onHover?.(item.id));
 
     const toggles = document.createElement('span');
     toggles.className = 'explorer-toggles';

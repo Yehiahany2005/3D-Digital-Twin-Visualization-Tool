@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { JointControls } from '../../ui/JointControls.js';
 import { parentOf } from '../SceneDocument.js';
 import { icon } from './icons.js';
+import { makeScrubbable } from './scrub.js';
 
 function round(value, digits) {
   const factor = 10 ** digits;
@@ -114,7 +115,8 @@ export class PropertiesPanel {
   }
 
   // A text/number field bound to a value of the selected item. read() → value; write(value) commits.
-  field({ label, unit, type = 'number', step, read, write, disabled, title }) {
+  // Number fields can also be changed by dragging their label; preview(value) shows it meanwhile.
+  field({ label, unit, type = 'number', step, read, write, disabled, title, preview }) {
     const wrapper = element('label', 'editor-field');
     const caption = element('span', null, label);
     if (unit) caption.append(' ', element('small', null, unit));
@@ -124,6 +126,17 @@ export class PropertiesPanel {
     input.disabled = Boolean(disabled);
     if (title) wrapper.title = title;
     this.bindInput(input, { type, read, write });
+    if (type === 'number' && !disabled) {
+      makeScrubbable(caption, input, {
+        step: step || 1,
+        preview,
+        commit: (value) => {
+          write(value);
+          // A drag that didn't change the document (e.g. back where it started) shows the value again.
+          this.syncValues();
+        },
+      });
+    }
     wrapper.append(caption, input);
     return wrapper;
   }
@@ -250,17 +263,28 @@ export class PropertiesPanel {
       next[index] = value;
       this.editor.updateItem(item.id, { [key]: next }, `${label} ${current().name}`);
     };
+    // While a label is dragged the object moves right away; the change is saved when let go.
+    const previewPosition = (index) => (value) => {
+      if (!runtime?.root || linked) return;
+      runtime.root.position.setComponent(index, value);
+    };
+    const previewRotation = (index) => (value) => {
+      if (!runtime?.root || linked) return;
+      const degrees = [...current().rotation];
+      degrees[index] = value;
+      runtime.root.rotation.set(...degrees.map(THREE.MathUtils.degToRad), 'YXZ');
+    };
     const grid = element('div', 'placement-fields');
     grid.append(
-      this.field({ label: 'X', unit: 'm', step: 0.05, read: read('position', 0, 3), write: write('position', 0, 'Move'), disabled: blocker, title: 'Left / right on the floor' }),
-      this.field({ label: 'Z', unit: 'm', step: 0.05, read: read('position', 2, 3), write: write('position', 2, 'Move'), disabled: blocker, title: 'Forward / back on the floor' }),
-      this.field({ label: 'Height', unit: 'm', step: 0.05, read: read('position', 1, 3), write: write('position', 1, 'Move'), disabled: blocker, title: 'Above the floor' }),
-      this.field({ label: 'Turn', unit: '°', step: 15, read: read('rotation', 1, 1), write: write('rotation', 1, 'Turn'), disabled: blocker, title: 'Turned on the floor' }),
+      this.field({ label: 'X', unit: 'm', step: 0.05, read: read('position', 0, 3), write: write('position', 0, 'Move'), disabled: blocker, title: 'Left / right on the floor. Drag the label to slide it.', preview: previewPosition(0) }),
+      this.field({ label: 'Z', unit: 'm', step: 0.05, read: read('position', 2, 3), write: write('position', 2, 'Move'), disabled: blocker, title: 'Forward / back on the floor. Drag the label to slide it.', preview: previewPosition(2) }),
+      this.field({ label: 'Height', unit: 'm', step: 0.05, read: read('position', 1, 3), write: write('position', 1, 'Move'), disabled: blocker, title: 'Above the floor. Drag the label to raise or lower it.', preview: previewPosition(1) }),
+      this.field({ label: 'Turn', unit: '°', step: 15, read: read('rotation', 1, 1), write: write('rotation', 1, 'Turn'), disabled: blocker, title: 'Turned on the floor. Drag the label to turn it (Shift: 1.5° steps).', preview: previewRotation(1) }),
     );
     if (this.editor.freeRotation || Math.abs(item.rotation[0]) > 0.01 || Math.abs(item.rotation[2]) > 0.01) {
       grid.append(
-        this.field({ label: 'Tilt X', unit: '°', step: 15, read: read('rotation', 0, 1), write: write('rotation', 0, 'Tilt'), disabled: blocker }),
-        this.field({ label: 'Tilt Z', unit: '°', step: 15, read: read('rotation', 2, 1), write: write('rotation', 2, 'Tilt'), disabled: blocker }),
+        this.field({ label: 'Tilt X', unit: '°', step: 15, read: read('rotation', 0, 1), write: write('rotation', 0, 'Tilt'), disabled: blocker, preview: previewRotation(0) }),
+        this.field({ label: 'Tilt Z', unit: '°', step: 15, read: read('rotation', 2, 1), write: write('rotation', 2, 'Tilt'), disabled: blocker, preview: previewRotation(2) }),
       );
     }
     body.append(grid);

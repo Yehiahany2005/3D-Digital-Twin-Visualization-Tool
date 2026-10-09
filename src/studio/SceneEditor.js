@@ -506,10 +506,11 @@ export class SceneEditor {
   // ---- Commands ----------------------------------------------------------------------------------
 
   // Adds an item; position defaults to the origin. Returns its id once committed.
-  addItem({ source, name, position = [0, 0, 0], rotation = [0, 0, 0], params, select = true, label }) {
+  // fields: anything else the new item should have (a copy's program, pose, solid…).
+  addItem({ source, name, position = [0, 0, 0], rotation = [0, 0, 0], params, fields, select = true, label }) {
     const id = newId(source.kind === 'catalog' ? source.id : 'model');
     const { ready } = this.commit(label || `Add ${name}`, (document) => {
-      const item = { id, name: uniqueName(document, name), source: { ...source }, position: position.map((value) => round(value)), rotation };
+      const item = { ...structuredClone(fields || {}), id, name: uniqueName(document, name), source: { ...source }, position: position.map((value) => round(value)), rotation };
       if (params) item.params = { ...params };
       document.items.push(item);
     });
@@ -534,9 +535,18 @@ export class SceneEditor {
     ids.forEach((id) => dependentsOf(this.document, id).forEach((dependent) => doomed.add(dependent)));
     if (!doomed.size) return;
     const names = this.items.filter((item) => doomed.has(item.id)).map((item) => item.name);
-    this.commit(doomed.size === 1 ? `Delete ${names[0]}` : `Delete ${doomed.size} items`, (document) => {
+    const label = doomed.size === 1 ? `Delete ${names[0]}` : `Delete ${doomed.size} items`;
+    this.commit(label, (document) => {
       document.items = document.items.filter((item) => !doomed.has(item.id));
     });
+    this.emit('removed', { names, label });
+  }
+
+  // What a copy of an item keeps besides where it is: settings, program, pose, solid… but not
+  // what it hangs off, nor being hidden or locked.
+  copyFields(item) {
+    const { id, name, source, position, rotation, params, mount, attach, hidden, locked, ...fields } = structuredClone(item);
+    return { source, params, fields };
   }
 
   duplicate(id) {
@@ -544,16 +554,14 @@ export class SceneEditor {
     if (!original) return null;
     this.capturePoses();
     const copy = structuredClone(this.item(id));
-    delete copy.mount;
-    delete copy.attach;
     const root = this.runtimes.get(id)?.root;
     // A mounted item's copy starts free, next to where the original is now.
     if (root && (original.mount || original.attach)) {
       root.updateMatrixWorld(true);
       copy.position = root.getWorldPosition(new THREE.Vector3()).toArray();
     }
-    copy.position = [copy.position[0] + Math.max(this.snap, 0.5), copy.position[1], copy.position[2] + Math.max(this.snap, 0.5)].map((value) => round(value));
-    return this.addItem({ ...copy, name: original.name, label: `Duplicate ${original.name}` }).id;
+    const position = [copy.position[0] + Math.max(this.snap, 0.5), copy.position[1], copy.position[2] + Math.max(this.snap, 0.5)];
+    return this.addItem({ ...this.copyFields(this.item(id)), name: original.name, position, rotation: copy.rotation, label: `Duplicate ${original.name}` }).id;
   }
 
   // ---- Selection & gizmo ----------------------------------------------------------------------------

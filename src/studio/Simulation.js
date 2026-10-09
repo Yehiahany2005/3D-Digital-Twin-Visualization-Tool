@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { createBoxMesh } from './catalog/loads.js';
 
 const STEP = 1 / 60;
-const MAX_STEPS_PER_FRAME = 4;
+// Enough catch-up steps for 4× speed at 30 frames a second.
+const MAX_STEPS_PER_FRAME = 8;
 const MAX_SPAWNED = 300;
 const FRICTION = 0.7;
 // How far above a belt a box may be and still be carried (it settles onto the belt in between).
