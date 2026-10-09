@@ -10,6 +10,7 @@ import { createStationBase } from '../station-1/StationBase.js';
 import { createCardboardCaseFactory, getCardboardMaterials } from './CardboardCase.js';
 import { createPickAndPlaceRobot } from './PickAndPlaceRobot.js';
 import { createBoxConveyors, createInputConveyor } from './PackingLineEquipment.js';
+import { createCaseCloser } from './CaseCloser.js';
 import { CasePackingCycle } from './CasePackingCycle.js';
 
 const PANEL_REFRESH_SECONDS = 0.1;
@@ -20,6 +21,7 @@ const PANEL_STATE_COLORS = {
   PICK_4_CANS: '#e3a52b',
   PLACE_INTO_BOX: '#e3a52b',
   BOX_COMPLETED: '#c98d16',
+  CASE_CLOSING: '#c98d16',
   OUTPUT: '#39c46a',
 };
 
@@ -44,7 +46,7 @@ function describeCasePacking(status) {
  * ├── StationBase
  * ├── InputConveyor (InputBelt, LaneDivider, EndStop, InfeedTunnel, jerry cans on the belt)
  * ├── BoxConveyor (BoxInfeedBelt, CaseErectorTunnel, BoxStop, cases at the packing position)
- * ├── OutputConveyor (OutputBelt, CaseTaper, OutputTunnel)
+ * ├── OutputConveyor (OutputBelt, CaseCloser, CaseTaper, OutputTunnel)
  * ├── PickAndPlaceRobot (GantryFrame, Carriage, VerticalAxis › GripperHead › Gripper_01…04)
  * ├── Sensors (Sensors_Cans, Sensors_Cases)
  * └── ControlPanel
@@ -72,6 +74,8 @@ export function buildCasePackingStation(definition = CASE_PACKING_DEFINITION) {
   root.add(inputConveyor.root);
   const conveyors = createBoxConveyors({ materials, definition, tapeMaterial: cardboard.tape });
   root.add(conveyors.boxRoot, conveyors.outputRoot);
+  const closer = createCaseCloser({ materials, definition });
+  conveyors.outputRoot.add(closer.root);
 
   const pickY = line.beltHeight + handleGrip.y;
   const robot = createPickAndPlaceRobot({
@@ -129,6 +133,7 @@ export function buildCasePackingStation(definition = CASE_PACKING_DEFINITION) {
     materials,
     input: inputConveyor,
     conveyors,
+    closer,
     robot,
     sensors: { cans: canSensors, boxes: boxSensors },
     controlPanel,

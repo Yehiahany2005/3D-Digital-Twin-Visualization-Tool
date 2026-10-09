@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { StepSequencer } from '../common/StepSequencer.js';
 import { smoother } from '../station-1/OilGeometry.js';
 import { CASE_PACKING_SPEEDS, CASE_PACKING_STATES as STATES } from './CasePackingDefinition.js';
+import { OPEN_ANGLE as FLAP_OPEN_ANGLE } from './CardboardCase.js';
+import { CLOSER_BAR_RADIUS } from './CaseCloser.js';
 
 /** Distance over which an accumulating object eases into its stop (m). */
 const STOP_BLEND = 0.06;
@@ -29,6 +31,23 @@ function trapezoidTravel(t, distance, v, ramp) {
 
 const easeOut = (t) => 1 - (1 - t) ** 3;
 
+/**
+ * Largest flap angle (rad, 0 = closed) that keeps a bar at (`out`, `up`) from the
+ * hinge — out = away from the case — on the outer side of a flap `depth` long.
+ */
+function flapAngleUnderBar(out, up, depth, clearance) {
+  const reach = Math.hypot(out, up);
+  if (reach * reach - clearance * clearance > depth * depth) return Infinity;
+  return Math.PI - Math.atan2(up, out) - Math.asin(Math.min(1, clearance / reach));
+}
+
+/** Largest flap angle that fits under a flat plate `up` above the hinge. */
+function flapAngleUnderPlate(up, depth, thickness) {
+  const reach = Math.hypot(depth, thickness);
+  if (up >= reach) return Infinity;
+  return Math.asin(Math.max(up, thickness) / reach) - Math.atan2(thickness, depth);
+}
+
 function initialStatus(speed) {
   return {
     state: STATES.EMPTY,
@@ -48,7 +67,7 @@ function initialStatus(speed) {
 
 /**
  * Case packing process controller. One machine cycle:
- * EMPTY → JERRYCANS_ARRIVE → PICK_4_CANS → PLACE_INTO_BOX → BOX_COMPLETED → OUTPUT.
+ * EMPTY → JERRYCANS_ARRIVE → PICK_4_CANS → PLACE_INTO_BOX → BOX_COMPLETED → CASE_CLOSING → OUTPUT.
  * All motion is evaluated from absolute start/end values, so any speed
  * multiplier produces identical, collision-free paths.
  */
@@ -80,6 +99,8 @@ export class CasePackingCycle {
     };
     this.zones = { pick: input.z, place: boxLine.z };
     this.canFootprint = { x: can.length, z: can.width };
+    /** End and side flaps both reach half the case width (see CardboardCase). */
+    this.flapDepth = box.width / 2;
     this.status = initialStatus(1);
     this.reset();
   }
@@ -103,7 +124,8 @@ export class CasePackingCycle {
     this.cans = [];
     if (this.box) this.box.root.removeFromParent();
     this.box = null;
-    const { robot, conveyors, input, sensors } = this.parts;
+    const { robot, conveyors, input, sensors, closer } = this.parts;
+    closer.reset();
     robot.setZ(this.zones.pick);
     robot.setY(this.heights.travel);
     robot.setPitch(this.pitch.pick);
@@ -148,6 +170,7 @@ export class CasePackingCycle {
     this.planPick();
     this.planPlace();
     this.planCompletion();
+    this.planClosing();
     this.planOutput();
   }
 
@@ -249,17 +272,92 @@ export class CasePackingCycle {
     const { robot } = this.parts;
     const queue = (...args) => this.sequencer.queue(...args);
 
-    queue(STATES.BOX_COMPLETED, 'Folding end flaps · robot returning', timings.returnAndFoldEnds, { robot: 'RETURNING' }, {
+    queue(STATES.BOX_COMPLETED, 'Case filled · robot returning', timings.robotReturn, { robot: 'RETURNING' }, {
       onUpdate: (progress) => {
         robot.setZ(THREE.MathUtils.lerp(this.zones.place, this.zones.pick, smoother(progress)));
         robot.setPitch(THREE.MathUtils.lerp(this.pitch.box, this.pitch.pick, smoother(progress)));
-        this.box.setMinorFlaps(smoother(progress / 0.6));
       },
     });
-    queue(STATES.BOX_COMPLETED, 'Folding side flaps', timings.foldSides, { robot: 'HOME' }, {
-      onUpdate: (progress) => this.box.setMajorFlaps(smoother(progress)),
+    queue(STATES.BOX_COMPLETED, 'Case filled', timings.caseFilled, { robot: 'HOME' });
+  }
+
+  /** Box stop opens, the open case indexes to the closer and its flaps are folded, tamped and pressed. */
+  planClosing() {
+    const { line, boxLine, closer, timings } = this.definition;
+    const { conveyors, closer: machine } = this.parts;
+    const queue = (...args) => this.sequencer.queue(...args);
+    const { lerp } = THREE.MathUtils;
+    const v = line.beltSpeed;
+    const ramp = line.beltAcceleration;
+    const distance = boxLine.closerX - boxLine.packX;
+    const duration = distance / v + ramp;
+    const flap = this.definition.box.flap;
+    // Plate travel: down, hold for `hold` of the step, back up.
+    const tamp = (progress, hold) => {
+      const down = (1 - hold) / 2;
+      const s = progress < down ? smoother(progress / down) : 1 - smoother((progress - down - hold) / down);
+      return lerp(closer.plateParkUp, 0, s);
+    };
+
+    queue(STATES.CASE_CLOSING, 'Releasing box stop', timings.releaseStop, { boxStop: 'OPEN' }, {
+      onUpdate: (progress) => conveyors.setStopOpen(smoother(progress)),
     });
-    queue(STATES.BOX_COMPLETED, 'Case closed', timings.boxClosed);
+    queue(STATES.CASE_CLOSING, 'Indexing case to flap closer', duration, { boxConveyor: 'RUNNING' }, {
+      onUpdate: (progress, previous) => {
+        const s = trapezoidTravel(progress * duration, distance, v, ramp);
+        const delta = s - trapezoidTravel(previous * duration, distance, v, ramp);
+        conveyors.infeed.advance(delta);
+        conveyors.output.advance(delta);
+        this.box.root.position.x = boxLine.packX + s;
+      },
+      onEnd: () => { this.box.root.position.x = boxLine.closerX; },
+    });
+    queue(STATES.CASE_CLOSING, 'Closer: tuckers lowering', timings.tuckersLower, { boxConveyor: 'STOPPED' }, {
+      onUpdate: (progress) => machine.setTuckers(closer.parkOut, lerp(closer.parkUp, closer.foldUp, smoother(progress))),
+    });
+    queue(STATES.CASE_CLOSING, 'Closer: folding end flaps', timings.foldEnds, {}, {
+      onUpdate: (progress) => {
+        const out = lerp(closer.parkOut, -closer.pushIn, smoother(progress));
+        machine.setTuckers(out, closer.foldUp);
+        this.foldFlaps('minor', flapAngleUnderBar(out, closer.foldUp, this.flapDepth, flap + CLOSER_BAR_RADIUS));
+      },
+    });
+    queue(STATES.CASE_CLOSING, 'Closer: tuckers retracting', timings.tuckersRetract, {}, {
+      onUpdate: (progress) => machine.setTuckers(
+        lerp(-closer.pushIn, closer.parkOut, smoother((progress - 0.4) / 0.6)),
+        lerp(closer.foldUp, closer.parkUp, smoother(progress / 0.5)),
+      ),
+    });
+    queue(STATES.CASE_CLOSING, 'Closer: tamping end flaps', timings.tampEnds, {}, {
+      onUpdate: (progress) => {
+        const up = tamp(progress, 0.15);
+        machine.setPlate(up);
+        this.foldFlapsUnderPlate('minor', up + flap);
+      },
+    });
+    queue(STATES.CASE_CLOSING, 'Closer: folding side flaps', timings.foldSides, {}, {
+      onUpdate: (progress) => {
+        const out = lerp(closer.parkOut, -closer.pushIn, smoother(progress));
+        machine.setFolders(out);
+        this.foldFlaps('major', flapAngleUnderBar(out, closer.foldUp, this.flapDepth, flap + CLOSER_BAR_RADIUS));
+      },
+    });
+    queue(STATES.CASE_CLOSING, 'Closer: side folders retracting', timings.foldersRetract, {}, {
+      onUpdate: (progress) => machine.setFolders(lerp(-closer.pushIn, closer.parkOut, smoother(progress))),
+    });
+    queue(STATES.CASE_CLOSING, 'Closer: pressing case closed', timings.pressSeal, {}, {
+      onUpdate: (progress) => {
+        const up = tamp(progress, 0.35);
+        machine.setPlate(up);
+        this.foldFlapsUnderPlate('major', up);
+        this.foldFlapsUnderPlate('minor', up + flap);
+      },
+      onEnd: () => {
+        machine.reset();
+        this.foldFlaps('minor', 0);
+        this.foldFlaps('major', 0);
+      },
+    });
   }
 
   planOutput() {
@@ -268,19 +366,16 @@ export class CasePackingCycle {
     const queue = (...args) => this.sequencer.queue(...args);
     const v = line.beltSpeed;
     const ramp = line.beltAcceleration;
-    const distance = boxLine.exitX - boxLine.packX;
+    const distance = boxLine.exitX - boxLine.closerX;
     const duration = distance / v + ramp;
 
-    queue(STATES.OUTPUT, 'Releasing box stop', timings.releaseStop, { boxStop: 'OPEN' }, {
-      onUpdate: (progress) => conveyors.setStopOpen(smoother(progress)),
-    });
     queue(STATES.OUTPUT, 'Taping & discharging case', duration, { boxConveyor: 'RUNNING' }, {
       onUpdate: (progress, previous) => {
         const s = trapezoidTravel(progress * duration, distance, v, ramp);
         const delta = s - trapezoidTravel(previous * duration, distance, v, ramp);
         conveyors.infeed.advance(delta);
         conveyors.output.advance(delta);
-        const x = boxLine.packX + s;
+        const x = boxLine.closerX + s;
         this.box.root.position.x = x;
         // Taping head lays tape from the leading edge back as the case passes.
         const headLocal = boxLine.taperX - x;
@@ -322,8 +417,24 @@ export class CasePackingCycle {
   spawnBox() {
     const { boxLine, line } = this.definition;
     this.box = this.parts.createCase();
+    this.flapAngles = { minor: FLAP_OPEN_ANGLE, major: FLAP_OPEN_ANGLE };
     this.box.root.position.set(boxLine.spawnX, line.beltHeight, 0);
     this.parts.conveyors.boxRoot.add(this.box.root);
+  }
+
+  /** Flaps only ever fold further: the tool pushes them, nothing springs them back open. */
+  foldFlaps(kind, angle) {
+    const folded = Math.max(0, Math.min(this.flapAngles[kind], angle));
+    this.flapAngles[kind] = folded;
+    const closed = 1 - folded / FLAP_OPEN_ANGLE;
+    if (kind === 'minor') this.box.setMinorFlaps(closed);
+    else this.box.setMajorFlaps(closed);
+  }
+
+  /** The plate only reaches flaps already leaning in over the case. */
+  foldFlapsUnderPlate(kind, up) {
+    if (this.flapAngles[kind] >= Math.PI / 2) return;
+    this.foldFlaps(kind, flapAngleUnderPlate(up, this.flapDepth, this.definition.box.flap));
   }
 
   gripperFor(entry) {

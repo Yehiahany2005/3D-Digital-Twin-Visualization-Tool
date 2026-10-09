@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { createProceduralBox } from '../station-3/ProceduralBox.js';
 import { addMesh, group } from '../station-1/OilGeometry.js';
 
-const OPEN_ANGLE = THREE.MathUtils.degToRad(110);
+/** Erected-case flap angle (rad from closed). */
+export const OPEN_ANGLE = THREE.MathUtils.degToRad(110);
 
 /**
  * Cardboard case materials taken from the robot station's own box, so both
