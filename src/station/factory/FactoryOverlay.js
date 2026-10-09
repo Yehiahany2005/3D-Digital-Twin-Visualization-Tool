@@ -53,6 +53,7 @@ const STATIONS = [
 const VIEWPORT_PADDING = 12;
 const LABEL_LIFT = 0.6;
 const FLY_SECONDS = 1.15;
+const INSPECT_MIN_DISTANCE = 0.25;
 const CLICK_TOLERANCE_PX = 5;
 const ACCENT = 0x69c7d3;
 
@@ -124,7 +125,7 @@ export class FactoryOverlay {
     title.append(el('span', 'fx-title-text', 'Lubricant Line 01'), el('span', 'fx-title-sub', 'Raw materials to finished pallet'));
     title.addEventListener('click', () => this.showOverview());
     const head = el('div', 'fx-kpi-head');
-    head.append(el('span', '', 'Shift performance'), el('span', 'fx-chip', 'Sample data'));
+    head.append(el('span', '', 'Shift performance'), el('span', 'fx-chip', ''));
     const grid = el('div', 'fx-kpi-grid');
     FACTORY_KPIS.forEach((kpi) => grid.append(kpiCard(kpi)));
     this.titleBlock.append(title, head, grid);
@@ -268,6 +269,9 @@ export class FactoryOverlay {
     this.boxes = this.factory.stationRoots.map((root) => new THREE.Box3().setFromObject(root));
     this.lineBounds = this.boxes.reduce((all, box) => all.union(box), new THREE.Box3());
     this.overview = { position: this.camera.position.clone(), target: this.controls.target.clone() };
+    // The whole-line framing sets a ~3.6 m zoom floor; allow close inspection of station details.
+    this.savedMinDistance = this.controls.minDistance;
+    this.controls.minDistance = INSPECT_MIN_DISTANCE;
     this.buildHighlights();
   }
 
@@ -276,6 +280,7 @@ export class FactoryOverlay {
     this.root.hidden = true;
     this.tween = null;
     this.controls.enabled = true;
+    if (this.savedMinDistance !== undefined) this.controls.minDistance = this.savedMinDistance;
     this.domElement.style.cursor = '';
     this.highlights?.group.removeFromParent();
     this.highlights = null;

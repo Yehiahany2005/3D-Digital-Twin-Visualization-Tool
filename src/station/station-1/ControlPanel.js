@@ -18,7 +18,6 @@ function describeOilStation(status) {
       ['Filling head', status.fillingHead],
       ['Capping head', status.cappingHead],
       ['Filled / capped', `${status.filledCount} / ${status.cappedCount}`],
-      ['Output', `${status.outputCount} cans`],
     ],
     bar: { fraction: status.fillLevel ?? 0, label: `Fill ${Math.round((status.fillLevel ?? 0) * 100)} %   ·   Speed ${status.speed}×` },
   };

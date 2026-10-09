@@ -33,7 +33,6 @@ function describeCasePacking(status) {
       ['Robot', status.robot],
       ['Gripper', status.gripper],
       ['Cans in case', `${status.cansInBox} / 4`],
-      ['Cases completed', status.boxesCompleted],
     ],
     bar: { fraction: status.cansInBox / 4, label: `Case fill ${status.cansInBox}/4   ·   Speed ${status.speed}×` },
   };
