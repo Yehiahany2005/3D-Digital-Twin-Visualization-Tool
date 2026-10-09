@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { createBoxMesh } from './catalog/loads.js';
 
 const STEP = 1 / 60;
-const MAX_STEPS_PER_FRAME = 4;
+// Enough catch-up steps for 4× speed at 30 frames a second.
+const MAX_STEPS_PER_FRAME = 8;
 const MAX_SPAWNED = 300;
 const FRICTION = 0.7;
 // How far above a belt a box may be and still be carried (it settles onto the belt in between).
@@ -153,13 +154,18 @@ export class Simulation {
       });
       // Where the bottom of the shape is, relative to the body's origin (for "standing on a belt").
       const bottomOffset = Math.min(...colliders.map((shape) => shape.position[1] - shape.size[1] / 2));
-      this.bodies.push({ item, runtime, body, type, bottomOffset });
+      // A loose box's size and middle (in its own frame), for robots that pick it up.
+      const shape = colliders[0];
+      this.bodies.push({ item, runtime, body, type, bottomOffset, size: shape.size, center: shape.position });
     }
 
     if (component?.belt) {
       const matrix = root.matrixWorld.clone();
       this.belts.push({
         ...component.belt,
+        itemId: item.id,
+        component,
+        initialSpeed: component.belt.speed,
         inverse: matrix.clone().invert(),
         direction: new THREE.Vector3(1, 0, 0).transformDirection(matrix),
       });
@@ -191,7 +197,7 @@ export class Simulation {
       .setRotation(q(source.quaternion))
       .setCcdEnabled(true));
     world.createCollider(RAPIER.ColliderDesc.cuboid(length / 2, height / 2, width / 2).setFriction(FRICTION).setMass(8), body);
-    const entry = { mesh, body, type: 'dynamic', spawned: true, bottomOffset: -height / 2 };
+    const entry = { mesh, body, type: 'dynamic', spawned: true, bottomOffset: -height / 2, size: [length, height, width], center: [0, 0, 0] };
     this.bodies.push(entry);
     this.spawned.push(entry);
     this.spawnedCount += 1;
@@ -202,7 +208,7 @@ export class Simulation {
   driveBelts() {
     const point = new THREE.Vector3();
     this.bodies.forEach((entry) => {
-      if (entry.type !== 'dynamic') return;
+      if (entry.type !== 'dynamic' || entry.held) return;
       const { body } = entry;
       point.copy(body.translation());
       for (const belt of this.belts) {
@@ -224,7 +230,7 @@ export class Simulation {
     if (!this.sinks.length) return;
     const point = new THREE.Vector3();
     this.bodies = this.bodies.filter((entry) => {
-      if (entry.type !== 'dynamic') return true;
+      if (entry.type !== 'dynamic' || entry.held) return true;
       point.copy(entry.body.translation());
       const inside = this.sinks.some((sink) => {
         const local = point.clone().applyMatrix4(sink.inverse);
@@ -270,6 +276,14 @@ export class Simulation {
         body.setNextKinematicTranslation(v(position));
         body.setNextKinematicRotation(q(quaternion));
       });
+      // Held boxes follow the tool holding them.
+      this.bodies.forEach((entry) => {
+        if (!entry.held) return;
+        entry.held.object.updateWorldMatrix(true, false);
+        new THREE.Matrix4().multiplyMatrices(entry.held.object.matrixWorld, entry.held.offset).decompose(position, quaternion, scale);
+        entry.body.setNextKinematicTranslation(v(position));
+        entry.body.setNextKinematicRotation(q(quaternion));
+      });
       this.driveBelts();
       this.world.step();
       this.drainSinks();
@@ -283,12 +297,105 @@ export class Simulation {
     });
   }
 
+  // ---- What robot programs use ---------------------------------------------------------------
+
+  // A loose box's pose: { position, quaternion } of its body.
+  bodyPose(entry) {
+    return {
+      position: new THREE.Vector3().copy(entry.body.translation()),
+      quaternion: new THREE.Quaternion().copy(entry.body.rotation()),
+    };
+  }
+
+  // The middle of a loose box's top face, in the world.
+  boxTop(entry) {
+    const { position, quaternion } = this.bodyPose(entry);
+    const [, height] = entry.size;
+    return new THREE.Vector3(...entry.center).add(new THREE.Vector3(0, height / 2, 0)).applyQuaternion(quaternion).add(position);
+  }
+
+  // The box resting at a spot: the nearest loose, not-held, (nearly) still box whose middle is
+  // within `radius` of the spot across the floor and whose bottom is near the spot's height.
+  boxAt(spot, { radius = 0.6, settled = true } = {}) {
+    let best = null;
+    this.bodies.forEach((entry) => {
+      if (entry.type !== 'dynamic' || entry.held || !entry.size) return;
+      const top = this.boxTop(entry);
+      const bottom = top.y - entry.size[1];
+      const across = Math.hypot(top.x - spot.x, top.z - spot.z);
+      if (across > radius || Math.abs(bottom - spot.y) > 0.25) return;
+      if (settled && new THREE.Vector3().copy(entry.body.linvel()).length() > 0.05) return;
+      if (!best || across < best.across) best = { entry, across };
+    });
+    return best?.entry || null;
+  }
+
+  // The loose box a tool tip is touching (inside it, or within `tolerance` of its surface).
+  boxUnder(tip, { tolerance = 0.04 } = {}) {
+    let best = null;
+    this.bodies.forEach((entry) => {
+      if (entry.type !== 'dynamic' || entry.held || !entry.size) return;
+      const { position, quaternion } = this.bodyPose(entry);
+      const local = tip.clone().sub(position).applyQuaternion(quaternion.clone().invert()).sub(new THREE.Vector3(...entry.center));
+      const outside = [0, 1, 2].map((axis) => Math.max(0, Math.abs(local.getComponent(axis)) - entry.size[axis] / 2));
+      const distance = Math.hypot(...outside);
+      if (distance <= tolerance && (!best || distance < best.distance)) best = { entry, distance };
+    });
+    return best?.entry || null;
+  }
+
+  // Picks a box up: from now on it moves with `object` (a robot's tool joint), kept where it is
+  // relative to it, and pushes other boxes out of the way.
+  hold(entry, object) {
+    const { position, quaternion } = this.bodyPose(entry);
+    object.updateWorldMatrix(true, false);
+    const boxMatrix = new THREE.Matrix4().compose(position, quaternion, new THREE.Vector3(1, 1, 1));
+    entry.held = { object, offset: object.matrixWorld.clone().invert().multiply(boxMatrix) };
+    entry.body.setBodyType(this.RAPIER.RigidBodyType.KinematicPositionBased, true);
+  }
+
+  // Turns a held box (about the vertical) so it ends up square with `quaternion`, e.g. a pallet's,
+  // whichever of the two lengthwise ways is nearer.
+  squareHeld(entry, quaternion) {
+    if (!entry.held) return;
+    const { position, quaternion: current } = this.bodyPose(entry);
+    const yawOf = (rotation) => new THREE.Euler().setFromQuaternion(rotation, 'YXZ').y;
+    const wanted = yawOf(quaternion);
+    const now = yawOf(current);
+    const turn = (angle) => Math.atan2(Math.sin(angle), Math.cos(angle));
+    const yaw = Math.abs(turn(wanted - now)) <= Math.PI / 2 ? wanted : wanted + Math.PI;
+    const upright = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+    const boxMatrix = new THREE.Matrix4().compose(position, upright, new THREE.Vector3(1, 1, 1));
+    entry.held.object.updateWorldMatrix(true, false);
+    entry.held.offset = entry.held.object.matrixWorld.clone().invert().multiply(boxMatrix);
+  }
+
+  // Lets go of a held box: it falls (or rests) from where it is.
+  release(entry) {
+    if (!entry?.held) return;
+    entry.held = null;
+    entry.body.setBodyType(this.RAPIER.RigidBodyType.Dynamic, true);
+    entry.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    entry.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  }
+
+  // Starts or stops a conveyor (its belt speed, and its rollers turning).
+  setBeltRunning(itemId, running) {
+    const belt = this.belts.find((candidate) => candidate.itemId === itemId);
+    if (!belt) return false;
+    belt.speed = running ? belt.ratedSpeed ?? belt.initialSpeed : 0;
+    belt.component.setRunning?.(running);
+    return true;
+  }
+
   get boxCount() {
     return this.bodies.filter((entry) => entry.type === 'dynamic').length;
   }
 
   stop() {
     this.running = false;
+    // Conveyors a program switched go back to how the scene has them.
+    this.belts?.forEach((belt) => belt.component.setRunning?.(belt.initialSpeed > 0));
     this.spawned.forEach(({ mesh }) => {
       mesh.removeFromParent();
       mesh.traverse((child) => child.geometry?.dispose());

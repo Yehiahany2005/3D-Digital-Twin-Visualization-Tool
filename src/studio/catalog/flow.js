@@ -34,6 +34,8 @@ export const beltConveyor = {
     const stopMaterial = standard(0xd58a27, { metalness: 0.45, roughness: 0.35 });
     if (endStop) box(root, [0.05, 0.12, width + 0.12], [length / 2 + 0.03, beltHeight + 0.06, 0], stopMaterial, 'End stop');
     const half = length / 2;
+    // A robot program can start or stop the conveyor while the scene plays.
+    let active = running;
     return {
       root,
       anchors: {
@@ -49,9 +51,12 @@ export const beltConveyor = {
       ],
       body: 'static',
       // What the simulation needs (phase 2e): boxes on this belt move along +X at `speed`.
-      belt: { length, width, top: beltHeight, speed: running ? speed : 0, endStop },
+      belt: { length, width, top: beltHeight, speed: running ? speed : 0, ratedSpeed: speed, endStop },
+      setRunning(on) {
+        active = on;
+      },
       update(deltaTime, editor) {
-        if (!editor?.playing || !running) return;
+        if (!editor?.playing || !active) return;
         const turn = (speed * deltaTime) / 0.045;
         conveyor.rollers.forEach((roller) => { roller.rotation.y -= turn; });
       },

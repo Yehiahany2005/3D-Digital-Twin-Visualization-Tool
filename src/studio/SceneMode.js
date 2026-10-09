@@ -16,11 +16,40 @@ import { PropertiesPanel } from './ui/PropertiesPanel.js';
 import { AddDrawer } from './ui/AddDrawer.js';
 import { ThumbnailRenderer } from './thumbnails.js';
 import { SelectionHighlight } from './SelectionHighlight.js';
+import { ProgramPanel } from './ui/ProgramPanel.js';
+import { ProgramMarkers } from './program/ProgramMarkers.js';
+import { ProgramRunner } from './program/ProgramRunner.js';
+import { ReachChecker } from './program/ReachChecker.js';
+import { targetFrame, targetFromHit, targetLabel } from './program/targets.js';
+import { resolveTool } from '../motion/InverseKinematics.js';
+import { reachFor } from './program/reachFor.js';
+import { ContextMenu } from '../ui/ContextMenu.js';
 
 const SAVE_DELAY_MS = 600;
+const CAMERA_FLIGHT_SECONDS = 0.45;
+const TOAST_MS = 6000;
+const GRID_KEY = 'digital-twin:scene-grid';
+// A right-click that moves further than this is a pan (right-drag), not a click.
+const CLICK_TOLERANCE_PX = 5;
 const POSE_CHECK_MS = 3000;
 // Smallest area framed and lit, so an empty or tiny scene still has a sensible view.
 const MIN_SCENE_SIZE = 6;
+
+function readSetting(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeSetting(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Storage unavailable: the setting just isn't remembered.
+  }
+}
 
 function isTyping(event) {
   return Boolean(event.target.closest?.('input, select, textarea, [contenteditable="true"]'));
@@ -33,8 +62,9 @@ function isTyping(event) {
 // onSceneChange(scene) tells the tab the open scene's name or contents changed; onScenesSaved()
 // that the list of saved scenes may have changed.
 export class SceneMode {
-  constructor({ scene, cameraManager, controls, renderer, picker, outline, reachPanel, templates, ui, onStatus, onError, onEditInMachine, onEnvironmentChange, onSceneChange, onScenesSaved }) {
+  constructor({ scene, cameraManager, controls, renderer, picker, outline, reachPanel, floor, templates, ui, onStatus, onError, onEditInMachine, onEnvironmentChange, onSceneChange, onScenesSaved }) {
     this.scene = scene;
+    this.floor = floor;
     this.cameraManager = cameraManager;
     this.controls = controls;
     this.picker = picker;
@@ -64,9 +94,31 @@ export class SceneMode {
     this.explorer = new ExplorerPanel({
       list: ui.explorerList,
       count: ui.explorerCount,
+      filter: ui.explorerFilter,
       editor: this.editor,
       onFrame: (id) => this.frame(id),
       iconFor: (item, runtime) => this.iconFor(item, runtime),
+      onContextMenu: (id, event) => this.openItemMenu(id, event.clientX, event.clientY),
+      onHover: (id) => this.setHover(id),
+    });
+    this.menu = new ContextMenu();
+    // What the pointer is over, lit up faintly (and named next to the pointer).
+    this.hoverHighlight = new SelectionHighlight({ color: 0xffffff, opacity: 0.16 });
+    this.hoveredId = null;
+    // A floor grid of 1 m squares while laying things out, sized to the scene (see fitGrid).
+    this.grid = this.makeGrid(20);
+    this.gridWanted = readSetting(GRID_KEY) !== 'off';
+    this.speed = 1;
+    this.paused = false;
+    // Robot programs: what each robot does when the scene plays.
+    this.programMarkers = new ProgramMarkers(scene);
+    this.programPanel = new ProgramPanel({
+      editor: this.editor,
+      markers: this.programMarkers,
+      checker: new ReachChecker(),
+      pickTarget: (options) => this.startTargetPick(options),
+      previewReach: (itemId, point, orient) => this.previewReach(itemId, point, orient),
+      runnerFor: (itemId) => this.runners?.get(itemId) || null,
     });
     this.properties = new PropertiesPanel({
       container: ui.properties,
@@ -77,6 +129,7 @@ export class SceneMode {
       iconFor: (item, runtime) => this.iconFor(item, runtime),
       extraSections: [
         (item, runtime, panel) => this.paramsSection(item, runtime, panel),
+        (item, runtime, panel) => this.programPanel.section(item, runtime, panel),
         (item, runtime, panel) => this.connectionsSection(item, runtime, panel),
         (item, runtime, panel) => this.physicsSection(item, runtime, panel),
       ],
@@ -108,7 +161,9 @@ export class SceneMode {
       }
       if (type === 'history') this.updateHistoryButtons();
       if (type === 'selection') {
+        this.setHover(null);
         if (this.attachPick && this.attachPick.item.id !== this.editor.selectedId) this.endAttachPick();
+        if (this.targetPick && this.targetPick.robotId !== this.editor.selectedId) this.endTargetPick();
         this.bindReach();
         this.updateGuides();
       }
@@ -117,6 +172,7 @@ export class SceneMode {
         this.environmentChanged();
       }
       if (type === 'frame') this.frame(detail);
+      if (type === 'removed') this.toast(`Deleted ${detail.names.length === 1 ? detail.names[0] : `${detail.names.length} objects`}`, { undo: true });
       if (type === 'status') this.onStatus?.(detail);
     });
 
@@ -124,6 +180,7 @@ export class SceneMode {
     this.bindFileControls();
     this.bindKeys();
     this.bindGuides();
+    this.bindViewport(renderer.domElement);
   }
 
   // ---- Models, components and the Add drawer -----------------------------------------------------
@@ -287,7 +344,7 @@ export class SceneMode {
 
   // Settings of a catalog part (length, speed…). Changing one rebuilds the part.
   paramsSection(item, runtime, panel) {
-    if (item.source.kind !== 'catalog') return null;
+    if (item.source.kind !== 'catalog' || this.editor.playing) return null;
     const definition = getComponent(item.source.id);
     const specs = Object.entries(definition?.params || {});
     if (!specs.length) return null;
@@ -334,7 +391,7 @@ export class SceneMode {
 
   // Putting a tool on a robot, or making an object move along with another one (or one robot joint).
   connectionsSection(item, runtime, panel) {
-    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing') return null;
+    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing' || this.editor.playing) return null;
     const { editor } = this;
     const linked = Boolean(item.mount || item.attach);
     const mountAnchor = anchorsOf(runtime).find((anchor) => anchor.type === 'tool-mount');
@@ -409,7 +466,7 @@ export class SceneMode {
 
   // How the object behaves when the scene plays; models can be made solid.
   physicsSection(item, runtime, panel) {
-    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing') return null;
+    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing' || this.editor.playing) return null;
     const text = describeBody(item, runtime);
     if (runtime.kind !== 'model' && !text) return null;
     const { node, body } = panel.group('physics', 'When playing', { open: false });
@@ -459,6 +516,7 @@ export class SceneMode {
     this.simulation = simulation;
     this.startingPlay = false;
     this.editor.playing = true;
+    this.startPrograms(simulation);
     this.editor.updateGizmo();
     this.editor.emit('selection');
     this.updatePlayButton();
@@ -466,6 +524,8 @@ export class SceneMode {
 
   stopPlaying() {
     if (!this.simulation) return;
+    this.runners?.forEach((runner) => runner.stop());
+    this.runners = null;
     this.simulation.stop();
     this.simulation = null;
     this.editor.playing = false;
@@ -486,6 +546,9 @@ export class SceneMode {
     this.ui.playLabel.textContent = playing ? 'Stop' : 'Play';
     this.ui.play.title = playing ? 'Stop: everything goes back to where it was' : 'Play: gravity, conveyors and box sources run. Stop puts everything back.';
     this.ui.playStatus.hidden = !playing;
+    this.ui.pause.hidden = !playing;
+    this.ui.speed.hidden = !playing;
+    if (!playing) this.setPaused(false);
     this.ui.toolbar.classList.toggle('is-playing', playing);
     [this.ui.addButton, this.ui.undo, this.ui.redo, this.ui.freeRotate, ...this.ui.toolButtons].forEach((button) => { button.disabled = playing; });
     if (!playing) this.updateHistoryButtons();
@@ -537,6 +600,7 @@ export class SceneMode {
       if (event.key === 'Enter') ui.sceneName.blur();
     });
     ui.sceneDelete.addEventListener('click', () => this.deleteCurrent());
+    ui.sceneCopy.addEventListener('click', () => this.duplicateScene());
     ui.sceneExport.addEventListener('click', () => this.exportScene());
   }
 
@@ -596,7 +660,7 @@ export class SceneMode {
     this.updateTitle();
     this.onScenesSaved?.();
     if (scene.camera) this.restoreCamera(scene.camera);
-    else this.frame(null);
+    else this.applyFrame(null);
     this.environmentChanged();
     const missing = [...this.editor.runtimes.values()].filter((runtime) => runtime.kind === 'missing');
     if (missing.length) {
@@ -706,6 +770,10 @@ export class SceneMode {
     ui.undo.addEventListener('click', () => this.editor.undo());
     ui.redo.addEventListener('click', () => this.editor.redo());
     ui.play.addEventListener('click', () => this.togglePlay());
+    ui.pause.addEventListener('click', () => this.setPaused(!this.paused));
+    ui.speed.addEventListener('change', () => { this.speed = Number(ui.speed.value) || 1; });
+    ui.viewButtons.forEach((button) => button.addEventListener('click', () => this.view(button.dataset.sceneView)));
+    ui.gridToggle.addEventListener('click', () => this.setGrid(!this.gridWanted));
     ui.freeRotate.addEventListener('click', () => this.setFreeRotation(!this.editor.freeRotation));
     this.setTool('move');
   }
@@ -742,9 +810,10 @@ export class SceneMode {
     document.addEventListener('keydown', (event) => {
       if (!this.active || isTyping(event) || this.drawer.placing) return;
       const { editor } = this;
-      if (event.key === 'Escape' && this.attachPick) {
+      if (event.key === 'Escape' && (this.attachPick || this.targetPick)) {
         event.preventDefault();
         this.endAttachPick();
+        this.endTargetPick();
         return;
       }
       if (event.key === '?' || (event.key === 'Escape' && !this.ui.helpPanel.hidden)) {
@@ -753,7 +822,12 @@ export class SceneMode {
         return;
       }
       // While playing only selecting and framing work (and Ctrl+Enter stops).
-      if (editor.playing && !['escape', 'f'].includes(event.key.toLowerCase()) && !((event.ctrlKey || event.metaKey) && event.key === 'Enter')) return;
+      if (editor.playing && event.key === ' ') {
+        event.preventDefault();
+        this.setPaused(!this.paused);
+        return;
+      }
+      if (editor.playing && !['escape', 'f', 'home'].includes(event.key.toLowerCase()) && !((event.ctrlKey || event.metaKey) && event.key === 'Enter')) return;
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
         event.preventDefault();
         this.togglePlay();
@@ -767,9 +841,14 @@ export class SceneMode {
       else if (command && (key === 'y' || (key === 'z' && event.shiftKey))) editor.redo();
       else if (command && key === 'd' && selected) editor.duplicate(selected);
       else if (command && key === 's') this.saveNow();
+      else if (command && key === 'c' && selected) this.copy(selected);
+      else if (command && key === 'v') this.paste();
       else if (command) handled = false;
-      else if ((key === 'delete' || key === 'backspace') && selected) editor.removeItems([selected]);
+      // Not while working in the Selected panel (e.g. on a program step): that would delete the robot.
+      else if ((key === 'delete' || key === 'backspace') && selected && !event.target.closest?.('.scene-selected-body')) editor.removeItems([selected]);
       else if (key === 'f') this.frame(selected);
+      else if (key === 'home') this.frame(null);
+      else if (key === 'f2') this.rename();
       else if (key === 'r' && selected) editor.turn(event.shiftKey ? -90 : 90);
       else if (key === 'q') this.setTool('select');
       else if (key === 'w') this.setTool('move');
@@ -837,10 +916,299 @@ export class SceneMode {
     this.updateGuides();
   }
 
+  // ---- Robot programs ------------------------------------------------------------------------------
+
+  // Every robot with a program starts it when the scene plays.
+  startPrograms(simulation) {
+    this.runners = new Map();
+    this.reportedErrors = new Set();
+    this.editor.items.forEach((item) => {
+      const runtime = this.editor.runtimes.get(item.id);
+      if (!item.program?.steps?.length || item.hidden || !runtime?.asset?.rig) return;
+      this.runners.set(item.id, new ProgramRunner({ editor: this.editor, simulation, itemId: item.id, onChange: (runner) => this.programChanged(runner) }));
+    });
+    this.runners.forEach((runner) => runner.start());
+  }
+
+  // A robot that had to stop says why (once), over the 3D view.
+  programChanged(runner) {
+    if (!runner.error || this.reportedErrors?.has(runner.itemId)) return;
+    this.reportedErrors.add(runner.itemId);
+    this.onError?.(`${runner.name} stopped: ${runner.error.message}`);
+  }
+
+  // The next click in the view chooses a spot for a program step (snapping to conveyor ends and
+  // tops of things), on another object or the floor.
+  startTargetPick({ purpose, onPicked }) {
+    this.endAttachPick();
+    this.endTargetPick();
+    const { editor } = this;
+    const robotId = editor.selectedId;
+    const own = new Set([robotId, ...dependentsOf(editor.document, robotId)]);
+    const resolve = (hit) => {
+      const target = targetFromHit(editor, hit, this.floor);
+      return target && !(target.item && own.has(target.item)) ? target : null;
+    };
+    this.targetPick = { purpose, robotId, label: null };
+    this.picker.setHandler((hit) => {
+      const target = resolve(hit);
+      if (!target) {
+        this.onStatus?.('Click a spot on another object, or on the floor. Esc cancels.');
+        return;
+      }
+      this.endTargetPick();
+      onPicked(target);
+    }, () => [editor.root, this.floor].filter(Boolean), {
+      owner: 'program-target',
+      hover: (hit) => {
+        if (!this.targetPick) return;
+        const target = resolve(hit);
+        this.targetPick.label = target ? targetLabel(editor, target) : null;
+        this.programMarkers.showHover(target ? targetFrame(editor, target)?.position : null);
+        this.updateGuides();
+      },
+      onRelease: () => this.endTargetPick({ released: true }),
+    });
+    this.updateGuides();
+  }
+
+  endTargetPick({ released = false } = {}) {
+    if (!this.targetPick) return;
+    this.targetPick = null;
+    this.programMarkers.clear();
+    if (!released && this.picker.owner === 'program-target') this.picker.setHandler(null);
+    this.updateGuides();
+  }
+
+  // "Show me": moves the robot's tool tip to a step's spot now, while editing.
+  async previewReach(itemId, point, orient = 'down') {
+    if (!point || this.editor.playing) return;
+    const asset = this.editor.runtimes.get(itemId)?.asset;
+    const rig = asset?.rig;
+    const tool = rig?.tools[0] ? resolveTool(rig, rig.tools[0]) : null;
+    if (!tool) {
+      this.onError?.('This robot has no tool tip yet: put a gripper on it, or set its tool tip with Reach → Tool tip.');
+      return;
+    }
+    const result = reachFor(rig, tool, point, orient === 'any' ? null : new THREE.Vector3(0, -1, 0));
+    if (!result.reached) {
+      this.onError?.('The robot can\'t reach that spot with its tool pointing that way.');
+      return;
+    }
+    await asset.player.moveTo(result.values, { label: 'Showing the spot' });
+  }
+
+  // ---- Pointer in the 3D view: hover, right-click -----------------------------------------------
+
+  bindViewport(domElement) {
+    this.domElement = domElement;
+    let rightDown = null;
+    domElement.addEventListener('pointermove', (event) => {
+      this.pointer = { x: event.clientX, y: event.clientY };
+    });
+    domElement.addEventListener('pointerleave', () => {
+      this.pointer = null;
+      this.setHover(null);
+    });
+    domElement.addEventListener('pointerdown', (event) => {
+      // Clicking in the view finishes typing in a field (saving it), so shortcuts work again.
+      if (document.activeElement?.matches?.('input, select, textarea')) document.activeElement.blur();
+      if (event.button === 2) rightDown = { x: event.clientX, y: event.clientY };
+      else this.setHover(null);
+    });
+    // Right-click (not right-drag, which pans) opens the menu for what is under the pointer.
+    domElement.addEventListener('pointerup', (event) => {
+      if (event.button !== 2 || !rightDown || !this.active) return;
+      const moved = Math.hypot(event.clientX - rightDown.x, event.clientY - rightDown.y);
+      rightDown = null;
+      if (moved > CLICK_TOLERANCE_PX || this.picker.owner !== 'scene') return;
+      const hit = this.hitAt(event.clientX, event.clientY);
+      const id = hit?.object && this.editor.itemIdFor(hit.object);
+      if (id) {
+        this.editor.select(id);
+        this.openItemMenu(id, event.clientX, event.clientY);
+      } else {
+        this.openSceneMenu(event.clientX, event.clientY, this.floorPointAt(event.clientX, event.clientY));
+      }
+    });
+  }
+
+  raycastAt(x, y) {
+    const rect = this.domElement.getBoundingClientRect();
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(((x - rect.left) / rect.width) * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1), this.cameraManager.camera);
+    return raycaster;
+  }
+
+  hitAt(x, y) {
+    return this.raycastAt(x, y).intersectObject(this.editor.root, true)
+      .find((hit) => hit.object.isMesh && hit.object.visible && !hit.object.userData.helper) || null;
+  }
+
+  floorPointAt(x, y) {
+    return this.raycastAt(x, y).ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
+  }
+
+  hoverAt(hit, event) {
+    if (!event || this.editor.gizmoBusy || this.menu.isOpen) {
+      this.setHover(null);
+      return;
+    }
+    this.setHover(hit ? this.editor.itemIdFor(hit.object) : null, event);
+  }
+
+  // Lights up an item the pointer is over (not the selected one), and names it by the pointer.
+  setHover(id, event = null) {
+    const item = id && id !== this.editor.selectedId ? this.editor.item(id) : null;
+    const hoveredId = item?.id || null;
+    if (hoveredId !== this.hoveredId) {
+      this.hoveredId = hoveredId;
+      this.hoverHighlight.set(item ? [this.editor.runtimes.get(item.id)?.root].filter(Boolean) : []);
+      if (this.picker.owner === 'scene') this.domElement.style.cursor = item ? 'pointer' : 'default';
+    }
+    const label = this.ui.hoverLabel;
+    label.hidden = !item || !event;
+    if (item && event) {
+      const rect = this.domElement.getBoundingClientRect();
+      label.textContent = item.name;
+      label.style.transform = `translate(${event.clientX - rect.left + 14}px, ${event.clientY - rect.top + 16}px)`;
+    }
+  }
+
+  openItemMenu(id, x, y) {
+    const { editor } = this;
+    const item = editor.item(id);
+    if (!item) return;
+    this.setHover(null);
+    const playing = editor.playing;
+    const runtime = editor.runtimes.get(id);
+    const linked = Boolean(item.mount || item.attach);
+    const robot = runtime?.asset?.rig?.joints.length;
+    const toggle = (key, label) => editor.updateItem(id, { [key]: item[key] ? undefined : true }, `${label} ${item.name}`);
+    const items = [
+      { label: 'Zoom to it', icon: 'Focus', shortcut: 'F', run: () => this.frame(id) },
+      { label: 'Rename', icon: 'Pencil', shortcut: 'F2', run: () => this.rename(), disabled: playing },
+      'separator',
+      { label: 'Duplicate', icon: 'Copy', shortcut: 'Ctrl+D', run: () => editor.duplicate(id), disabled: playing },
+      { label: 'Copy', icon: 'ClipboardCopy', shortcut: 'Ctrl+C', run: () => this.copy(id) },
+      { label: 'Paste', icon: 'ClipboardPaste', shortcut: 'Ctrl+V', run: () => this.paste(), disabled: playing || !this.clipboard },
+      'separator',
+      { label: item.hidden ? 'Show' : 'Hide', icon: item.hidden ? 'Eye' : 'EyeOff', run: () => toggle('hidden', item.hidden ? 'Show' : 'Hide'), disabled: playing },
+      { label: item.locked ? 'Unlock' : 'Lock in place', icon: item.locked ? 'LockOpen' : 'Lock', run: () => toggle('locked', item.locked ? 'Unlock' : 'Lock'), disabled: playing },
+      linked
+        ? { label: item.mount ? 'Take off the robot' : 'Stop moving with it', icon: 'Unlink', run: () => editor.unlinkItem(id), disabled: playing }
+        : { label: 'Move along with…', icon: 'Link', run: () => this.startAttachPick(item), disabled: playing || editor.items.length < 2 },
+    ];
+    if (robot) items.push({ label: 'Edit its program', icon: 'ListVideo', run: () => this.revealGroup('Program') });
+    items.push('separator', { label: 'Delete', icon: 'Trash2', shortcut: 'Del', danger: true, run: () => editor.removeItems([id]), disabled: playing });
+    this.menu.open({ x, y, title: item.name, items });
+  }
+
+  openSceneMenu(x, y, point) {
+    const playing = this.editor.playing;
+    this.menu.open({
+      x,
+      y,
+      items: [
+        { label: this.clipboard ? `Paste ${this.clipboard.name} here` : 'Paste here', icon: 'ClipboardPaste', shortcut: 'Ctrl+V', run: () => this.paste(point), disabled: playing || !this.clipboard || !point },
+        { label: 'Add something…', icon: 'Plus', shortcut: 'A', run: () => this.drawer.setOpen(true), disabled: playing },
+        'separator',
+        { label: 'See everything', icon: 'Scan', shortcut: 'Home', run: () => this.frame(null) },
+        { label: 'View from above', icon: 'Eye', run: () => this.view('top') },
+        { label: 'View from the front', icon: 'Eye', run: () => this.view('front') },
+      ],
+    });
+  }
+
+  // Opens a group of the Selected panel (e.g. a robot's Program) and scrolls to it.
+  revealGroup(title) {
+    const group = [...this.ui.properties.querySelectorAll('.prop-group')].find((node) => node.querySelector(':scope > summary span')?.textContent === title);
+    if (!group) return;
+    group.open = true;
+    group.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+
+  // F2: rename the selected object (its name in the Selected panel), or the scene.
+  rename() {
+    const field = this.editor.selectedId ? this.ui.properties.querySelector('.prop-name') : this.ui.sceneName;
+    field?.focus();
+    field?.select();
+  }
+
+  // ---- Copy & paste -------------------------------------------------------------------------------
+
+  copy(id) {
+    const item = this.editor.item(id);
+    if (!item) return;
+    this.editor.capturePoses();
+    const fresh = this.editor.item(id);
+    const root = this.editor.runtimes.get(id)?.root;
+    root?.updateMatrixWorld(true);
+    const position = root ? root.getWorldPosition(new THREE.Vector3()).toArray() : fresh.position;
+    this.clipboard = { ...this.editor.copyFields(fresh), name: fresh.name, position, rotation: [...fresh.rotation] };
+    this.pastes = 0;
+    this.onStatus?.(`Copied ${fresh.name}. Ctrl+V pastes it where the pointer is.`);
+  }
+
+  // Pastes where the pointer is on the floor (or at `point`); otherwise next to the original.
+  paste(point = null) {
+    const copy = this.clipboard;
+    if (!copy || this.editor.playing) return;
+    const snap = this.editor.snap || 0;
+    const at = point || (this.pointer && this.floorPointAt(this.pointer.x, this.pointer.y));
+    this.pastes = (this.pastes || 0) + 1;
+    const position = at
+      ? [at.x, copy.position[1], at.z]
+      : [copy.position[0] + 0.5 * this.pastes, copy.position[1], copy.position[2] + 0.5 * this.pastes];
+    if (snap > 0) [0, 2].forEach((axis) => { position[axis] = Math.round(position[axis] / snap) * snap; });
+    const { ready } = this.editor.addItem({ ...copy, position, label: `Paste ${copy.name}` });
+    ready.then(() => this.environmentChanged());
+  }
+
+  // ---- Toast with Undo ------------------------------------------------------------------------------
+
+  toast(text, { undo = false } = {}) {
+    const { ui } = this;
+    clearTimeout(this.toastTimer);
+    ui.toastText.textContent = text;
+    ui.toastUndo.hidden = !undo;
+    ui.toast.hidden = false;
+    this.toastTimer = setTimeout(() => { ui.toast.hidden = true; }, TOAST_MS);
+  }
+
+  // ---- Playing: pause and speed ---------------------------------------------------------------------
+
+  setPaused(paused) {
+    this.paused = Boolean(paused && this.simulation);
+    this.ui.pause.classList.toggle('is-paused', this.paused);
+    this.ui.pauseLabel.textContent = this.paused ? 'Resume' : 'Pause';
+    this.ui.toolbar.classList.toggle('is-paused', this.paused);
+    this.updateGuides();
+  }
+
+  // ---- Scene copies -----------------------------------------------------------------------------------
+
+  async duplicateScene() {
+    await this.saveNow();
+    const copy = cloneScene(this.editor.document);
+    copy.id = newId('scene');
+    const names = new Set((await listScenes()).map((scene) => scene.name));
+    let name = `${copy.name} copy`;
+    for (let counter = 2; names.has(name); counter += 1) name = `${copy.name} copy ${counter}`;
+    copy.name = name;
+    await this.show(copy);
+    await this.saveNow();
+    this.onStatus?.(`Made a copy: "${name}". The original is unchanged.`);
+  }
+
   // ---- Guidance: empty scene card, hint line, help -------------------------------------------------
 
   bindGuides() {
     const { ui } = this;
+    ui.toastUndo.addEventListener('click', () => {
+      this.editor.undo();
+      ui.toast.hidden = true;
+    });
     ui.emptyAdd.addEventListener('click', () => this.drawer.setOpen(true));
     ui.help.addEventListener('click', () => this.setHelpOpen(ui.helpPanel.hidden));
     ui.helpClose.addEventListener('click', () => this.setHelpOpen(false));
@@ -868,13 +1236,18 @@ export class SceneMode {
 
   hintText() {
     const { editor } = this;
-    if (editor.playing) return 'Playing: conveyors run and boxes fall. Stop (Ctrl+Enter) puts everything back.';
+    if (editor.playing && this.paused) return 'Paused · Space carries on · Stop (Ctrl+Enter) puts everything back.';
+    if (editor.playing) return 'Playing: conveyors run and boxes fall · Space pauses · Stop (Ctrl+Enter) puts everything back.';
+    if (this.targetPick) {
+      const { purpose, label } = this.targetPick;
+      return `Click where to ${purpose}${label ? `: ${label}` : ' (on an object or the floor)'} · Esc cancels`;
+    }
     if (this.attachPick) {
       const { item, label } = this.attachPick;
       return `Click what ${item.name} should move with${label ? `: ${label}` : ''} · Esc cancels`;
     }
     const item = editor.selectedItem;
-    if (!item) return 'Click an object to select it · drag empty space to look around · A adds more';
+    if (!item) return 'Click an object to select it · right-click for more · drag empty space to look around · A adds more';
     const blocker = editor.moveBlocker(item);
     if (blocker) return blocker;
     if (editor.tool === 'select') return `${item.name} selected · W to move it · E to turn it · F to frame it`;
@@ -918,13 +1291,95 @@ export class SceneMode {
     return box;
   }
 
+  // Points the camera at an item (or the whole scene), flying there smoothly.
   frame(id) {
+    this.flyTo(() => this.applyFrame(id));
+  }
+
+  applyFrame(id) {
     const box = this.bounds(id);
     const helper = new THREE.Mesh(new THREE.BoxGeometry(...box.getSize(new THREE.Vector3()).toArray()));
     box.getCenter(helper.position);
     helper.updateMatrixWorld(true);
     this.cameraManager.frameObject(helper, this.controls);
     helper.geometry.dispose();
+  }
+
+  // apply() puts the camera where it should end up; the camera then flies there from where it is.
+  flyTo(apply) {
+    const { camera } = this.cameraManager;
+    const from = { position: camera.position.clone(), target: this.controls.target.clone() };
+    apply();
+    const to = { position: camera.position.clone(), target: this.controls.target.clone() };
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    camera.position.copy(from.position);
+    this.controls.target.copy(from.target);
+    this.cameraFlight = { from, to, start: performance.now() };
+  }
+
+  // Timed by the clock, not by frames, so a slow frame doesn't make the flight drag on.
+  updateCameraFlight() {
+    const flight = this.cameraFlight;
+    if (!flight) return;
+    const t = Math.min(1, (performance.now() - flight.start) / (CAMERA_FLIGHT_SECONDS * 1000));
+    const eased = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+    this.cameraManager.camera.position.lerpVectors(flight.from.position, flight.to.position, eased);
+    this.controls.target.lerpVectors(flight.from.target, flight.to.target, eased);
+    if (t >= 1) this.cameraFlight = null;
+  }
+
+  // The camera buttons: everything, the selection, from above, from the front.
+  view(kind) {
+    if (kind === 'all') return this.frame(null);
+    if (kind === 'selected') return this.frame(this.editor.selectedId);
+    const direction = kind === 'top' ? new THREE.Vector3(0, 1, 0.001) : new THREE.Vector3(0, 0.3, 1);
+    return this.flyTo(() => {
+      this.applyFrame(null);
+      const distance = this.cameraManager.camera.position.distanceTo(this.controls.target);
+      this.cameraManager.camera.position.copy(this.controls.target).addScaledVector(direction.normalize(), distance);
+    });
+  }
+
+  // A grid `size` metres across. Kept within the camera's range: lines that run far past it can
+  // be dropped whole by some graphics drivers instead of being cut short.
+  makeGrid(size) {
+    const grid = new THREE.GridHelper(size, size, 0x3a4045, 0x4b5258);
+    grid.material.transparent = true;
+    grid.material.opacity = 0.45;
+    grid.material.depthWrite = false;
+    // A centimetre up: any closer and the floor can hide it (depth precision).
+    grid.position.y = 0.01;
+    grid.visible = false;
+    grid.userData.helper = true;
+    grid.userData.size = size;
+    grid.raycast = () => {};
+    this.scene.add(grid);
+    return grid;
+  }
+
+  // Grows the grid with the scene: three times its width (at least 20 m), centred under it.
+  fitGrid(box) {
+    const size = box.getSize(new THREE.Vector3());
+    const span = Math.min(200, Math.max(20, Math.ceil((Math.max(size.x, size.z) * 3) / 2) * 2));
+    if (span !== this.grid.userData.size) {
+      const visible = this.grid.visible;
+      this.grid.removeFromParent();
+      this.grid.geometry.dispose();
+      this.grid.material.dispose();
+      this.grid = this.makeGrid(span);
+      this.grid.visible = visible;
+    }
+    const center = box.getCenter(new THREE.Vector3());
+    this.grid.position.x = Math.round(center.x);
+    this.grid.position.z = Math.round(center.z);
+  }
+
+  setGrid(on) {
+    this.gridWanted = on;
+    writeSetting(GRID_KEY, on ? 'on' : 'off');
+    this.ui.gridToggle.setAttribute('aria-pressed', String(on));
+    this.ui.gridToggle.classList.toggle('is-on', on);
+    this.grid.visible = this.active && on;
   }
 
   restoreCamera({ position, target }) {
@@ -943,6 +1398,7 @@ export class SceneMode {
       const size = box.getSize(new THREE.Vector3());
       const span = Math.max(size.x, size.z, MIN_SCENE_SIZE);
       this.onEnvironmentChange?.(this.editor.root, span);
+      this.fitGrid(box);
     }, 50);
   }
 
@@ -953,7 +1409,13 @@ export class SceneMode {
     this.active = true;
     this.ui.toolbar.hidden = false;
     this.editor.setShown(true);
-    this.picker.setDefault((hit) => this.handleClick(hit), () => this.editor.root, { owner: 'scene', cursor: 'default' });
+    this.picker.setDefault((hit) => this.handleClick(hit), () => this.editor.root, {
+      owner: 'scene',
+      cursor: 'default',
+      hover: (hit, event) => this.hoverAt(hit, event),
+    });
+    this.ui.viewTools.hidden = false;
+    this.setGrid(this.gridWanted);
     this.reachPanel.setExtraTargets(() => this.editor.itemRoots());
     if (!this.opened) {
       this.opened = true;
@@ -979,6 +1441,14 @@ export class SceneMode {
     clearInterval(this.poseTimer);
     this.active = false;
     this.endAttachPick();
+    this.endTargetPick();
+    this.programPanel.detach();
+    this.setHover(null);
+    this.menu.close();
+    this.cameraFlight = null;
+    this.ui.viewTools.hidden = true;
+    this.ui.toast.hidden = true;
+    this.grid.visible = false;
     this.drawer.setOpen(false);
     this.ui.toolbar.hidden = true;
     this.setHelpOpen(false);
@@ -998,18 +1468,24 @@ export class SceneMode {
     if (document.activeElement !== this.ui.sceneName) this.ui.sceneName.value = scene.name;
   }
 
-  update(deltaTime) {
+  update(frameTime) {
     if (!this.active) return;
-    if (this.simulation) {
+    this.updateCameraFlight();
+    // Paused: everything holds still. Otherwise the scene runs at the chosen speed.
+    const deltaTime = this.simulation ? (this.paused ? 0 : frameTime * this.speed) : frameTime;
+    // Programs decide first, robots then move, and physics follows (held boxes go with the tool).
+    this.runners?.forEach((runner) => runner.update(deltaTime));
+    if (deltaTime > 0) this.editor.update(deltaTime);
+    if (this.simulation && deltaTime > 0) {
       this.simulation.step(deltaTime);
       this.playTime = (this.playTime || 0) + deltaTime;
       if (this.playTime > 0.25) {
         this.playTime = 0;
         const count = this.simulation.boxCount;
-        this.ui.playStatus.textContent = `Playing · ${count} box${count === 1 ? '' : 'es'}`;
+        this.ui.playStatus.textContent = `${this.paused ? 'Paused' : 'Playing'} · ${count} box${count === 1 ? '' : 'es'}`;
       }
     }
-    this.editor.update(deltaTime);
     this.properties.update();
+    this.programPanel.update();
   }
 }
