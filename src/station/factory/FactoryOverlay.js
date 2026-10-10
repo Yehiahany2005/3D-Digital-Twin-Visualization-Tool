@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ArrowLeft, ArrowUpRight, Eye, EyeOff, createElement } from 'lucide';
+import { ArrowLeft, ArrowUpRight, Eye, EyeOff, Package, createElement } from 'lucide';
 import './factoryOverlay.css';
 
 /*
@@ -185,7 +185,14 @@ export class FactoryOverlay {
     this.toggleButton.addEventListener('click', () => this.setUiVisible(!this.uiVisible));
     this.renderToggle();
 
-    root.append(this.backButton, this.toggleButton);
+    // Switches the jerry cans between the station's own can and the yellow retail can.
+    this.canButton = el('button', 'fx-btn fx-can');
+    this.canButton.type = 'button';
+    this.canButton.title = 'Switch the jerry can design';
+    this.canButton.addEventListener('click', () => this.toggleCanLook());
+    this.renderCanButton();
+
+    root.append(this.backButton, this.canButton, this.toggleButton);
     this.container.append(root);
   }
 
@@ -196,6 +203,21 @@ export class FactoryOverlay {
       el('kbd', '', 'H'),
     );
     this.toggleButton.setAttribute('aria-pressed', String(!this.uiVisible));
+  }
+
+  toggleCanLook() {
+    this.factory.setCanLook(this.factory.canLook === 'branded' ? 'classic' : 'branded');
+    this.renderCanButton();
+  }
+
+  renderCanButton() {
+    const branded = this.factory.canLook === 'branded';
+    this.canButton.replaceChildren(
+      icon(Package),
+      el('span', '', branded ? 'Can: Shell' : 'Can: Classic'),
+      el('kbd', '', 'C'),
+    );
+    this.canButton.setAttribute('aria-pressed', String(branded));
   }
 
   // ---- Events ----------------------------------------------------------------------------
@@ -231,6 +253,7 @@ export class FactoryOverlay {
       if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
       if (event.key === 'Escape' && this.focused !== null) this.showOverview();
       if (event.key === 'h' || event.key === 'H') this.setUiVisible(!this.uiVisible);
+      if (event.key === 'c' || event.key === 'C') this.toggleCanLook();
     });
   }
 

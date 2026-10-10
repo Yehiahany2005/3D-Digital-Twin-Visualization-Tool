@@ -6,6 +6,7 @@ import { OilFillingStation } from '../station-1/OilFillingStation.js';
 import { CAN_STATES as OIL_CAN_STATES, OilFillingCycle } from '../station-1/OilFillingCycle.js';
 import { OIL_STATION_STATES } from '../station-1/OilFillingDefinition.js';
 import { brandLabel } from '../station-1/OilMaterials.js';
+import { applyLabelLayout, setCanLook as restyleCans } from '../station-1/JerryCan.js';
 import { CasePackingStation } from '../station-2/CasePackingStation.js';
 import { CasePackingCycle } from '../station-2/CasePackingCycle.js';
 import { CASE_PACKING_DEFINITION, CASE_PACKING_STATES } from '../station-2/CasePackingDefinition.js';
@@ -17,6 +18,7 @@ import { FACTORY_LAYOUT as LAYOUT, FACTORY_STATION1_DEFINITION } from './Factory
 import { createInstancedStock, createRackFrame, createSign } from './SupplyRack.js';
 import { createCanTransfer, createCaseTransfer, createFloorBay } from './TransferLines.js';
 import logoUrl from '../../assets/logo.png?url';
+import canLabelUrl from '../../assets/can-label.png?url';
 
 export const FACTORY_STATES = Object.freeze({
   IDLE: 'IDLE',
@@ -83,6 +85,7 @@ export class LubricantFactory {
     this.pendingS3Box = null;
     this.environment = new StationEnvironment({ scene, renderer });
     this.onUpdate = null;
+    this.canLook = 'classic';
   }
 
   get visible() {
@@ -134,6 +137,32 @@ export class LubricantFactory {
     });
   }
 
+  /** The rack's empty cans, drawn in the current can look (instanced, so rebuilt on a change). */
+  buildCanStock() {
+    const remaining = this.canStock?.remaining;
+    if (this.canStock) this.canSupply.remove(this.canStock.root);
+    const template = this.s1.parts.createCan().root;
+    applyLabelLayout(template, this.canLook);
+    this.canStock = createInstancedStock({ name: 'EmptyJerryCans', template, slots: this.canSlots });
+    this.canStock.root.userData.ownLook = this.canLook === 'branded';
+    if (remaining !== undefined) while (this.canStock.remaining > remaining) this.canStock.take();
+    this.canSupply.add(this.canStock.root);
+  }
+
+  /** 'classic' (the station's own can) or 'branded' (yellow retail can from a product photo). */
+  setCanLook(look) {
+    if (look === this.canLook || !this.root) return;
+    this.canLook = look;
+    if (look === 'branded' && !this.brandedLabelMap && typeof document !== 'undefined') {
+      this.brandedLabelMap = new THREE.TextureLoader().load(canLabelUrl);
+      this.brandedLabelMap.colorSpace = THREE.SRGBColorSpace;
+      this.brandedLabelMap.anisotropy = 4;
+    }
+    restyleCans(this.s1.parts.materials, look, this.brandedLabelMap ?? null);
+    applyLabelLayout(this.root, look);
+    this.buildCanStock();
+  }
+
   buildSupplies(materials) {
     // Empty jerry cans: 3 deck levels × 6 × 6 = 108 cans = one full pallet of cases.
     const canSupply = group(this.root, 'JerryCanSupply', [LAYOUT.station1.x + LAYOUT.supply.cans.x, 0, LAYOUT.station1.z + LAYOUT.supply.cans.z]);
@@ -147,8 +176,9 @@ export class LubricantFactory {
         }
       }
     });
-    this.canStock = createInstancedStock({ name: 'EmptyJerryCans', template: this.s1.parts.createCan().root, slots: canSlots });
-    canSupply.add(this.canStock.root);
+    this.canSupply = canSupply;
+    this.canSlots = canSlots;
+    this.buildCanStock();
 
     // Cartons: 2 deck levels × 2 bays × 2 × 2 × 2 high = 32 cases (27 needed per pallet).
     const caseSupply = group(this.root, 'CartonSupply', [LAYOUT.station2.x + LAYOUT.supply.cases.x, 0, LAYOUT.station2.z + LAYOUT.supply.cases.z]);
@@ -225,7 +255,9 @@ export class LubricantFactory {
     // Each new can is taken from the supply rack.
     cycle.createCan = () => {
       factory.canStock.take();
-      return parts.createCan();
+      const can = parts.createCan();
+      applyLabelLayout(can.root, factory.canLook);
+      return can;
     };
     cycle.spawnBatch = function spawnFromRack(center) {
       if (factory.canStock.remaining < this.definition.line.cansPerBatch) return;
