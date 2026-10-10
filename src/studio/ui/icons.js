@@ -3,6 +3,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Bot,
+  BrickWall,
   Box,
   ChevronDown,
   ChevronRight,
@@ -46,7 +47,7 @@ import {
 } from 'lucide';
 
 const ICONS = {
-  AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Bot, Box, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Copy,
+  AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Bot, BrickWall, Box, ChevronDown, ChevronRight, ChevronUp, ClipboardCopy, ClipboardPaste, Copy,
   Crosshair, Eye, EyeOff, Focus, Forklift, Grab, Grid3x3, Hand, House, LandPlot, Layers, Link, ListVideo, Lock, LockOpen, MapPin, Package,
   PackageCheck, PackageSearch, Pencil, Play, Plus, Power, Repeat, Scan, Square, Timer, Trash2, Unlink, User, WandSparkles, Wrench,
 };

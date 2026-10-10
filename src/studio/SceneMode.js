@@ -26,6 +26,7 @@ import { targetFrame, targetFromHit, targetLabel } from './program/targets.js';
 import { resolveTool } from '../motion/InverseKinematics.js';
 import { reachFor } from './program/reachFor.js';
 import { ContextMenu } from '../ui/ContextMenu.js';
+import { icon } from './ui/icons.js';
 import { DxfError, PLAN_UNITS } from './plan/dxf.js';
 import { defaultPlanSettings, isPlanFile, readPlan, suggestedWallLayers } from './plan/PlanLibrary.js';
 import { DEFAULT_WALL_HEIGHT, DEFAULT_WALL_OPACITY, MAX_WALL_COLLIDERS } from './plan/FloorPlan.js';
@@ -420,6 +421,10 @@ export class SceneMode {
     const suggested = suggestedWallLayers(data);
     const layersHead = el('span', 'editor-subtitle');
     const layerList = el('div', 'plan-layers');
+    // Column headings, so it is clear what the tick and the Wall button do.
+    const columns = el('div', 'plan-layer-columns');
+    columns.append(el('span', null, 'Show'), el('span', null, 'Raise as walls'));
+    layerList.append(columns);
     const setLayers = (hidden, label) => write({ hiddenLayers: hidden }, label);
     const writeWalls = (patch, label) => write({ walls: { height: DEFAULT_WALL_HEIGHT, opacity: DEFAULT_WALL_OPACITY, ...settings().walls, ...patch } }, label);
     data.layers.forEach((layer) => {
@@ -439,8 +444,9 @@ export class SceneMode {
       const sync = [() => { input.checked = !hiddenLayers().includes(layer.name); }];
       // Only layers with lines can become walls.
       if (layer.count) {
-        const wall = el('button', 'plan-wall-toggle', 'Wall');
+        const wall = el('button', 'plan-wall-toggle');
         wall.type = 'button';
+        wall.append(icon('BrickWall', 13), el('span', null, 'Wall'));
         wall.addEventListener('click', () => {
           const chosen = new Set(wallLayers());
           const raise = !chosen.has(layer.name);
