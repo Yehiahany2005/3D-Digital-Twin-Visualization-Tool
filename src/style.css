@@ -2561,11 +2561,12 @@ body.is-scrubbing * { cursor: ew-resize !important; user-select: none; }
 .plan-layer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-layer small { color: var(--subtle); white-space: nowrap; }
 .plan-layer-columns { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; padding: 0.3rem 0 0.25rem; background: var(--panel-bg); color: var(--subtle); font-size: 0.66rem; letter-spacing: 0.04em; text-transform: uppercase; }
-.plan-wall-toggle { flex: none; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.18rem 0.55rem; border: 1px solid rgba(105, 199, 211, 0.55); border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.72rem; font-weight: 600; cursor: pointer; transition: background 0.12s, color 0.12s; }
-.plan-wall-toggle svg { flex: none; }
-.plan-wall-toggle:hover { background: rgba(105, 199, 211, 0.28); }
-.plan-wall-toggle.is-suggested { box-shadow: 0 0 0 2px rgba(105, 199, 211, 0.25); }
-.plan-wall-toggle.is-on { border-color: var(--accent); background: var(--accent); color: #10262a; }
+.plan-wall-toggle { flex: none; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.12rem 0.5rem; border: 1px solid var(--border); border-radius: 999px; background: none; color: var(--muted); font-size: 0.7rem; cursor: pointer; transition: border-color 0.12s, color 0.12s, background 0.12s; }
+.plan-wall-toggle svg { flex: none; opacity: 0.8; }
+.plan-wall-toggle:hover { border-color: var(--accent); color: var(--text); }
+.plan-wall-toggle.is-suggested { border-color: rgba(105, 199, 211, 0.45); }
+.plan-wall-toggle.is-on { border-color: rgba(105, 199, 211, 0.7); background: var(--accent-soft); color: var(--accent); }
+.plan-wall-toggle.is-on svg { opacity: 1; }
 .plan-wall-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .plan-walls[hidden] { display: none; }
 
