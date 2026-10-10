@@ -120,9 +120,9 @@ assert.equal(await page.locator('[data-scene-plan]').isVisible(), true);
 assert.equal(await page.locator('.plan-walls').isVisible(), false, 'wall settings only once a layer is raised');
 await page.locator('.plan-layer', { hasText: 'WALLS' }).locator('.plan-wall-toggle').click();
 assert.equal(await page.locator('.plan-walls').isVisible(), true);
-// A floor plan offers no Attach / When playing groups, and nothing can move along with it.
+// A floor plan offers no Position, Attach or When playing groups.
 const groups = await page.locator('.prop-group > summary span').allInnerTexts();
-assert.ok(!groups.includes('Attach') && !groups.includes('When playing'), `plan groups: ${groups}`);
+assert.ok(!['Attach', 'When playing', 'Position'].some((name) => groups.includes(name)), `plan groups: ${groups}`);
 facts = await planFacts();
 assert.equal(facts.wallHeight, 3);
 assert.ok(facts.wallPieces > 0 && facts.colliders === facts.wallPieces);

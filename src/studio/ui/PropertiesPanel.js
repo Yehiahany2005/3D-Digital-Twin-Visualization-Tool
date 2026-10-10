@@ -83,7 +83,8 @@ export class PropertiesPanel {
       return;
     }
     if (runtime?.kind === 'missing') parts.push(this.missingNote(item));
-    parts.push(this.positionGroup(item, runtime));
+    // A floor plan is placed with the gizmo or "Centre on the origin", not with numbers.
+    if (item.source.kind !== 'plan') parts.push(this.positionGroup(item, runtime));
     this.extraSections.forEach((build) => {
       const extra = build(item, runtime, this);
       if (extra) parts.push(extra);
@@ -244,7 +245,6 @@ export class PropertiesPanel {
     const { node, body } = this.group('position', 'Position');
     const blocker = this.editor.moveBlocker(item);
     const linked = Boolean(item.mount || item.attach);
-    const flat = item.source.kind === 'plan';
     const current = () => this.editor.item(item.id);
     // Mounted items show where they are in the world, but are moved by what they hang off.
     const world = () => {
@@ -280,11 +280,10 @@ export class PropertiesPanel {
     grid.append(
       this.field({ label: 'X', unit: 'm', step: 0.05, read: read('position', 0, 3), write: write('position', 0, 'Move'), disabled: blocker, title: 'Left / right on the floor. Drag the label to slide it.', preview: previewPosition(0) }),
       this.field({ label: 'Z', unit: 'm', step: 0.05, read: read('position', 2, 3), write: write('position', 2, 'Move'), disabled: blocker, title: 'Forward / back on the floor. Drag the label to slide it.', preview: previewPosition(2) }),
-      // A floor plan lies on the floor; everything else can be raised.
-      ...(flat ? [] : [this.field({ label: 'Above floor', unit: 'm', step: 0.05, read: read('position', 1, 3), write: write('position', 1, 'Move'), disabled: blocker, title: 'How high it sits above the floor. Drag the label to raise or lower it.', preview: previewPosition(1) })]),
+      this.field({ label: 'Above floor', unit: 'm', step: 0.05, read: read('position', 1, 3), write: write('position', 1, 'Move'), disabled: blocker, title: 'How high it sits above the floor. Drag the label to raise or lower it.', preview: previewPosition(1) }),
       this.field({ label: 'Turn', unit: '°', step: 15, read: read('rotation', 1, 1), write: write('rotation', 1, 'Turn'), disabled: blocker, title: 'Turned on the floor. Drag the label to turn it (Shift: 1.5° steps).', preview: previewRotation(1) }),
     );
-    if (!flat && (this.editor.freeRotation || Math.abs(item.rotation[0]) > 0.01 || Math.abs(item.rotation[2]) > 0.01)) {
+    if (this.editor.freeRotation || Math.abs(item.rotation[0]) > 0.01 || Math.abs(item.rotation[2]) > 0.01) {
       grid.append(
         this.field({ label: 'Tilt X', unit: '°', step: 15, read: read('rotation', 0, 1), write: write('rotation', 0, 'Tilt'), disabled: blocker, preview: previewRotation(0) }),
         this.field({ label: 'Tilt Z', unit: '°', step: 15, read: read('rotation', 2, 1), write: write('rotation', 2, 'Tilt'), disabled: blocker, preview: previewRotation(2) }),
