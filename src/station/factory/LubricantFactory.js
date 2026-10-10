@@ -5,6 +5,7 @@ import { group, smoother } from '../station-1/OilGeometry.js';
 import { OilFillingStation } from '../station-1/OilFillingStation.js';
 import { CAN_STATES as OIL_CAN_STATES, OilFillingCycle } from '../station-1/OilFillingCycle.js';
 import { OIL_STATION_STATES } from '../station-1/OilFillingDefinition.js';
+import { brandLabel } from '../station-1/OilMaterials.js';
 import { CasePackingStation } from '../station-2/CasePackingStation.js';
 import { CasePackingCycle } from '../station-2/CasePackingCycle.js';
 import { CASE_PACKING_DEFINITION, CASE_PACKING_STATES } from '../station-2/CasePackingDefinition.js';
@@ -15,6 +16,7 @@ import { STATION_DEFINITION } from '../station-3/StationDefinition.js';
 import { FACTORY_LAYOUT as LAYOUT, FACTORY_STATION1_DEFINITION } from './FactoryLayout.js';
 import { createInstancedStock, createRackFrame, createSign } from './SupplyRack.js';
 import { createCanTransfer, createCaseTransfer, createFloorBay } from './TransferLines.js';
+import logoUrl from '../../assets/logo.png?url';
 
 export const FACTORY_STATES = Object.freeze({
   IDLE: 'IDLE',
@@ -114,6 +116,8 @@ export class LubricantFactory {
     this.openTunnel(this.s2.parts.conveyors.outputRoot.getObjectByName('OutputTunnel'));
 
     const materials = this.s1.parts.materials;
+    // The factory's own Station 1 materials: branding them leaves the stand-alone Station 1 as it is.
+    brandLabel(materials.label, logoUrl);
     this.buildSupplies(materials);
     this.buildTransfers(materials);
     this.buildSigns(materials);

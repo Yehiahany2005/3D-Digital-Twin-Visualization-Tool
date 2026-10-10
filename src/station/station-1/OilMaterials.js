@@ -19,22 +19,64 @@ function beltTexture() {
   return texture;
 }
 
+function drawLabel(context, width, height) {
+  context.fillStyle = '#1d4f8f';
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = '#e39a26';
+  context.fillRect(0, height * 0.68, width, height * 0.07);
+  context.fillStyle = '#f4f6f8';
+  context.textAlign = 'center';
+  context.font = 'bold 64px Arial, sans-serif';
+  context.fillText('INDUSTRIAL', width / 2, height * 0.2);
+  context.fillText('LUBRICANT', width / 2, height * 0.32);
+  context.font = 'bold 88px Arial, sans-serif';
+  context.fillText('15W-40', width / 2, height * 0.52);
+  context.font = 'bold 72px Arial, sans-serif';
+  context.fillText('20 L', width / 2, height * 0.9);
+}
+
+// Same label with a white band on top carrying a brand logo (fitted, aspect kept).
+function drawBrandedLabel(context, width, height, logo) {
+  context.fillStyle = '#1d4f8f';
+  context.fillRect(0, 0, width, height);
+  const band = height * 0.3;
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, band);
+  const pad = 16;
+  const scale = Math.min((width - pad * 2) / logo.width, (band - pad * 2) / logo.height);
+  const logoWidth = logo.width * scale;
+  const logoHeight = logo.height * scale;
+  context.drawImage(logo, (width - logoWidth) / 2, (band - logoHeight) / 2, logoWidth, logoHeight);
+  context.fillStyle = '#e39a26';
+  context.fillRect(0, height * 0.72, width, height * 0.05);
+  context.fillStyle = '#f4f6f8';
+  context.textAlign = 'center';
+  context.font = 'bold 56px Arial, sans-serif';
+  context.fillText('INDUSTRIAL', width / 2, height * 0.42);
+  context.fillText('LUBRICANT', width / 2, height * 0.52);
+  context.font = 'bold 84px Arial, sans-serif';
+  context.fillText('15W-40', width / 2, height * 0.67);
+  context.font = 'bold 72px Arial, sans-serif';
+  context.fillText('20 L', width / 2, height * 0.9);
+}
+
 function labelTexture() {
-  return canvasTexture(512, 600, (context, width, height) => {
-    context.fillStyle = '#1d4f8f';
-    context.fillRect(0, 0, width, height);
-    context.fillStyle = '#e39a26';
-    context.fillRect(0, height * 0.68, width, height * 0.07);
-    context.fillStyle = '#f4f6f8';
-    context.textAlign = 'center';
-    context.font = 'bold 64px Arial, sans-serif';
-    context.fillText('INDUSTRIAL', width / 2, height * 0.2);
-    context.fillText('LUBRICANT', width / 2, height * 0.32);
-    context.font = 'bold 88px Arial, sans-serif';
-    context.fillText('15W-40', width / 2, height * 0.52);
-    context.font = 'bold 72px Arial, sans-serif';
-    context.fillText('20 L', width / 2, height * 0.9);
-  });
+  return canvasTexture(512, 600, drawLabel);
+}
+
+/**
+ * Puts a brand logo on the jerry-can label. Every can sharing this label material
+ * (belt cans, rack stock) updates once the image has loaded.
+ */
+export function brandLabel(labelMaterial, logoUrl) {
+  if (typeof Image === 'undefined') return; // headless checks have no images
+  const image = new Image();
+  image.onload = () => {
+    const canvas = labelMaterial.map.image;
+    drawBrandedLabel(canvas.getContext('2d'), canvas.width, canvas.height, image);
+    labelMaterial.map.needsUpdate = true;
+  };
+  image.src = logoUrl;
 }
 
 function wireMeshTexture() {
