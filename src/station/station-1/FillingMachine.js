@@ -34,7 +34,6 @@ export function buildPortalFrame(parent, materials, { halfX, halfZ, top, guardBo
   [-1, 1].forEach((sx) => {
     addMesh(guards, new THREE.BoxGeometry(0.008, top - endBottom, halfZ * 2 - 0.08), materials.guard, 'End guard', [sx * (halfX + 0.045), endBottom + (top - endBottom) / 2, 0], { castShadow: false });
   });
-  roundedBox(guards, [0.025, 0.22, 0.03], [halfX - 0.2, guardBottom + guardHeight * 0.5, halfZ + 0.065], materials.stainless, 'Door handle', 0.008);
   return frame;
 }
 

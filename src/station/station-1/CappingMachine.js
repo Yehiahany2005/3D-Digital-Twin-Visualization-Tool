@@ -16,6 +16,12 @@ const CAP_FEED_OFFSET = 0.06;
  */
 export function createCappingMachine({ materials, centerX, chuckXs, capSeatY, stroke, createCap }) {
   const root = group(null, 'CappingMachine', [centerX, 0, 0]);
+  const localXs = chuckXs.map((x) => x - centerX);
+  // The lift cylinders and piston rods sit in the gaps between the outer spindles, so every
+  // spindle is drawn alike (they used to overlap the two outer ones).
+  const sortedXs = [...localXs].sort((a, b) => a - b);
+  const liftX = sortedXs.length > 1 ? (sortedXs[sortedXs.length - 1] + sortedXs[sortedXs.length - 2]) / 2 : 0.62;
+  const liftXs = [-liftX, liftX];
   buildPortalFrame(root, materials, { halfX: FRAME_HALF_X, halfZ: FRAME_HALF_Z, top: CABINET_BOTTOM, guardBottom: 0.98 });
 
   const cabinet = group(root, 'ControlCabinet');
@@ -25,16 +31,15 @@ export function createCappingMachine({ materials, centerX, chuckXs, capSeatY, st
 
   // Two pneumatic lift cylinders hanging from the cabinet.
   const lift = group(root, 'LiftCylinders');
-  [-0.62, 0.62].forEach((x) => {
+  liftXs.forEach((x) => {
     cylinder(lift, 0.045, 0.3, [x, CABINET_BOTTOM - 0.15, 0], materials.aluminium, 'Cylinder barrel', { segments: 24 });
     cylinder(lift, 0.05, 0.03, [x, CABINET_BOTTOM - 0.3, 0], materials.frameDark, 'Cylinder end cap', { segments: 24 });
   });
 
   const head = group(root, 'CappingHead', [0, capSeatY + stroke, 0]);
-  const localXs = chuckXs.map((x) => x - centerX);
   const halfSpan = Math.max(...localXs.map((x) => Math.abs(x))) + 0.1;
   roundedBox(head, [Math.max(halfSpan * 2, 1.4), 0.06, 0.22], [0, PLATE_Y, 0], materials.stainless, 'Head plate', 0.015);
-  [-0.62, 0.62].forEach((x) => {
+  liftXs.forEach((x) => {
     cylinder(head, 0.018, 0.45, [x, PLATE_Y + 0.03 + 0.225, 0], materials.chrome, 'Piston rod', { segments: 16 });
   });
 
