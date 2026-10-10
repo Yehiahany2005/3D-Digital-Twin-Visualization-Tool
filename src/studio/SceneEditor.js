@@ -627,12 +627,15 @@ export class SceneEditor {
     this.gizmo.setTranslationSnap(this.snap > 0 ? this.snap : null);
     this.gizmo.setRotationSnap(this.snap > 0 ? this.rotationSnapDeg * D2R : null);
     const rotating = this.tool === 'rotate';
+    // A floor plan stays flat on the floor: it slides and turns, but never lifts or tilts.
+    const flat = this.selectedItem?.source.kind === 'plan';
+    const free = this.freeRotation && !flat;
     this.gizmo.setMode(rotating ? 'rotate' : 'translate');
     // Turning on the floor uses only the vertical axis; free rotation shows all three rings.
-    this.gizmo.showX = !rotating || this.freeRotation;
-    this.gizmo.showZ = !rotating || this.freeRotation;
-    this.gizmo.showY = true;
-    this.gizmo.setSpace(rotating && this.freeRotation ? 'local' : 'world');
+    this.gizmo.showX = !rotating || free;
+    this.gizmo.showZ = !rotating || free;
+    this.gizmo.showY = rotating || !flat;
+    this.gizmo.setSpace(rotating && free ? 'local' : 'world');
   }
 
   // Why the selected item can't be moved with the gizmo right now, or null.

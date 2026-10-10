@@ -2555,7 +2555,17 @@ body.is-scrubbing * { cursor: ew-resize !important; user-select: none; }
 
 
 /* Floor plan layers (Selected → Floor plan) */
-.plan-layers { display: flex; flex-direction: column; max-height: 11rem; overflow-y: auto; margin: 0.25rem 0 0.4rem; border: 1px solid var(--border-soft); border-radius: 4px; padding: 0.15rem 0.35rem; }
-.plan-layer { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0; font-size: 0.8rem; cursor: pointer; }
+.plan-layers { display: flex; flex-direction: column; max-height: 12.5rem; overflow-y: auto; margin: 0.25rem 0 0.4rem; border: 1px solid var(--border-soft); border-radius: 4px; padding: 0.15rem 0.35rem; }
+.plan-layer { display: flex; align-items: center; gap: 0.4rem; min-height: 1.7rem; }
+.plan-layer-show { display: flex; flex: 1; min-width: 0; align-items: center; gap: 0.4rem; font-size: 0.8rem; cursor: pointer; }
 .plan-layer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-layer small { color: var(--subtle); white-space: nowrap; }
+.plan-wall-toggle { flex: none; padding: 0.1rem 0.45rem; border: 1px solid var(--border); border-radius: 999px; background: none; color: var(--subtle); font-size: 0.68rem; cursor: pointer; }
+.plan-wall-toggle:hover { border-color: var(--accent); color: var(--text); }
+.plan-wall-toggle.is-suggested { border-style: dashed; color: var(--muted); }
+.plan-wall-toggle.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.plan-walls[hidden] { display: none; }
+
+.scene-empty .scene-empty-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; border: 0; background: none; color: var(--muted); font-size: 0.74rem; cursor: pointer; padding: 0.1rem; }
+.scene-empty .scene-empty-secondary svg { width: 14px; height: 14px; }
+.scene-empty .scene-empty-secondary:hover { color: var(--accent); }

@@ -526,7 +526,8 @@ pallet): boxes picked at the end stop and put on grid spots 1, 2, 3 in turn, no 
 ### 9.12 Floor plans from AutoCAD (DXF) (2026-10-10)
 
 A factory's floor plan (an AutoCAD **DXF**) can be imported into a scene as the reference to place
-robots and conveyors on: **Add → Floor plan**, or a `.dxf` through **Import file**. It is drawn
+robots and conveyors on: the toolbar's **Floor plan** button (also on the empty-scene card and the
+floor's right-click menu; a `.dxf` given to Add → Import file works too). It is drawn
 flat on the floor at true size, and is an ordinary scene item (select, move, turn, lock, hide,
 undo, Explorer, saved with the scene, packed into the `.dtscene` bundle with the DXF file itself).
 
@@ -537,7 +538,8 @@ undo, Explorer, saved with the scene, packed into the `.dtscene` bundle with the
 | Middle and size | From the building's layers (not notes or dimensions), leaving out the outer 0.5 % of points so a stray line far away doesn't count. Coordinates are stored relative to that middle, so plans drawn far from their origin keep full precision. A new plan is centred on the scene's origin and **locked**; **Centre on the origin** (panel or right-click) does it again. |
 | Look | Lines 2 mm above the floor. CAD View: dark lines; Digital Twin View: glowing accent lines (the plan keeps its own look: `userData.ownLook`). Text: flat labels at their drawn size, every label of a layer in one mesh with its letters in a shared canvas picture. |
 | Layers | Listed with a switch and how many lines / texts each has. Layers named like dimensions or notes (`dim`, `anno`, `text`, `note`, `hatch`, `defpoints`, `title`, `border`…) and layers switched off in the file start hidden; **Show all** / **Hide notes**. |
-| Walls | **Raise into walls**: tick layers (wall-like names first, "looks like walls"); height (default 3 m) and how solid they look (default 35 %). Raised walls are thin boxes for physics (up to 20,000); the flat drawing is never a collider. |
+| Walls | Each layer row has a **Wall** toggle (dashed when the layer looks like walls); wall height (default 3 m) and how solid they look (default 35 %) appear once a layer is raised. Raised walls are thin boxes for physics (up to 20,000); the flat drawing is never a collider. |
+| Only what fits | A plan has no Attach / When playing groups, no Above floor or tilt (the gizmo only slides and turns it), can't be duplicated or copied, and nothing can be attached to it. Its right-click menu: zoom, view from above, rename, layers and walls, centre, hide, lock, delete. |
 | Picking | Walls and labels are skipped by the normal click; only when nothing else is under the pointer does a click within 6 px of a shown line (a bucket grid over the lines, < 1 ms per test) select the plan. Things placed on a plan select as before. |
 | Performance | One `LineSegments` per layer. Measured (software rendering, so frame rates are not representative): 210k segments on 15 layers + 2,000 labels = 38 draw calls, imported in ~2 s, picking ~1–3 ms. |
 | Errors | `.dwg`: "save it as DXF from AutoCAD" (also in the Machine tab). Binary DXF, a renamed DWG, a damaged file or one with nothing drawable get their own message. |
@@ -550,6 +552,10 @@ units, mirroring, errors, 100k segments), `FloorPlan.test.js` (scale, walls, pic
 stopped by a diagonal wall). Browser check: `npm run check:floor-plan` (with `npm run dev`
 running) imports `docs/samples/sample-hall.dxf` (a 40 × 25 m hall in mm) and checks scale,
 layers, walls, picking with a conveyor on top, Digital Twin View, save + reload, export + reopen.
+
+Tidy-ups found while checking every object's panel and menu: the placement field "Height" is now
+**Above floor** (it clashed with the Height setting of people, tables, fences and ends of line);
+**Paste** only appears in menus once something is copied.
 
 Next: snap to plan lines and corners while moving things; per-layer colours from the file;
 hatch fills; a "My floor plans" shelf in the Add drawer.

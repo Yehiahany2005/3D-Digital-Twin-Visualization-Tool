@@ -83,16 +83,16 @@ await openNewScene();
 
 // ---- Errors -----------------------------------------------------------------------------------
 await writeFile(path.join(shots, 'hall.dwg'), 'AC1032 not really a drawing');
-await page.setInputFiles('[data-add-plan-input]', path.join(shots, 'hall.dwg'));
+await page.setInputFiles('[data-scene-plan-input]', path.join(shots, 'hall.dwg'));
 await page.waitForTimeout(300);
 assert.match(await status(), /DWG.*Save As.*DXF/s);
 await writeFile(path.join(shots, 'broken.dxf'), 'this is\nnot a drawing at all\n');
-await page.setInputFiles('[data-add-plan-input]', path.join(shots, 'broken.dxf'));
+await page.setInputFiles('[data-scene-plan-input]', path.join(shots, 'broken.dxf'));
 await page.waitForFunction(() => /Couldn't read broken\.dxf/.test(document.querySelector('[data-asset-status]').textContent));
 step(`errors: ${await status()}`);
 
 // ---- Import -------------------------------------------------------------------------------------
-await page.setInputFiles('[data-add-plan-input]', 'docs/samples/sample-hall.dxf');
+await page.setInputFiles('[data-scene-plan-input]', 'docs/samples/sample-hall.dxf');
 await page.waitForFunction(() => [...window.__twin.sceneEditor.editor.runtimes.values()].some((runtime) => runtime.kind === 'plan'));
 await page.waitForTimeout(800);
 let facts = await planFacts();
@@ -105,7 +105,7 @@ step(`imported: walls measure ${facts.size.map((v) => v.toFixed(3)).join(' × ')
 await shot('1-imported');
 
 // ---- Layers: show dimensions, then undo ------------------------------------------------------------
-const layerBox = (name) => page.locator('.plan-layers:not(.plan-wall-layers) .plan-layer', { hasText: name }).locator('input');
+const layerBox = (name) => page.locator('.plan-layer', { hasText: name }).locator('input');
 await layerBox('DIMENSIONS').check();
 facts = await planFacts();
 assert.equal(facts.dimensionsShown, true);
@@ -115,7 +115,14 @@ assert.equal(facts.dimensionsShown, false);
 step('layer switch and undo');
 
 // ---- Walls ---------------------------------------------------------------------------------------
-await page.locator('.plan-wall-layers .plan-layer', { hasText: 'WALLS' }).locator('input').check();
+// The toolbar button opens the same file picker.
+assert.equal(await page.locator('[data-scene-plan]').isVisible(), true);
+assert.equal(await page.locator('.plan-walls').isVisible(), false, 'wall settings only once a layer is raised');
+await page.locator('.plan-layer', { hasText: 'WALLS' }).locator('.plan-wall-toggle').click();
+assert.equal(await page.locator('.plan-walls').isVisible(), true);
+// A floor plan offers no Attach / When playing groups, and nothing can move along with it.
+const groups = await page.locator('.prop-group > summary span').allInnerTexts();
+assert.ok(!groups.includes('Attach') && !groups.includes('When playing'), `plan groups: ${groups}`);
 facts = await planFacts();
 assert.equal(facts.wallHeight, 3);
 assert.ok(facts.wallPieces > 0 && facts.colliders === facts.wallPieces);

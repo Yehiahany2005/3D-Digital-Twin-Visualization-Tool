@@ -162,7 +162,6 @@ export class SceneMode {
       preview: (entry) => this.preview(entry),
       place: (entry, placement) => this.place(entry, placement),
       onImport: (file) => this.importFile(file),
-      onImportPlan: (file) => this.importPlan(file),
       onOpenChange: (open) => {
         if (open) this.loadThumbnails();
         this.updateGuides();
@@ -407,37 +406,64 @@ export class SceneMode {
     panel.fields.push(show);
     const centre = el('button', null, 'Centre on the origin');
     centre.type = 'button';
-    centre.title = 'Move the plan so its middle is at the scene\'s origin';
     centre.disabled = Boolean(item.locked);
+    centre.title = item.locked ? 'Unlock it first (padlock above): it is locked so it isn\'t moved by accident' : 'Move the plan so its middle is at the scene\'s origin';
     centre.addEventListener('click', () => this.centrePlan(item.id));
     const centreRow = el('div', 'button-row');
     centreRow.append(centre);
     body.append(unitRow, size, centreRow);
-    if (item.locked) body.append(el('p', 'editor-hint', 'Unlock it (padlock above) to move or centre it.'));
 
-    // Layers: one row each, with a switch and how much is on it.
-    const visibleCount = () => data.layers.filter((layer) => !(settings().hiddenLayers || []).includes(layer.name)).length;
+    // Layers: one row each, with a switch, how much is on it, and a "Wall" toggle that raises its
+    // lines into walls.
+    const hiddenLayers = () => settings().hiddenLayers || [];
+    const wallLayers = () => settings().walls?.layers || [];
+    const suggested = suggestedWallLayers(data);
     const layersHead = el('span', 'editor-subtitle');
     const layerList = el('div', 'plan-layers');
     const setLayers = (hidden, label) => write({ hiddenLayers: hidden }, label);
+    const writeWalls = (patch, label) => write({ walls: { height: DEFAULT_WALL_HEIGHT, opacity: DEFAULT_WALL_OPACITY, ...settings().walls, ...patch } }, label);
     data.layers.forEach((layer) => {
-      const row = el('label', 'plan-layer');
+      const row = el('div', 'plan-layer');
+      const label = el('label', 'plan-layer-show');
       const input = Object.assign(document.createElement('input'), { type: 'checkbox' });
       input.addEventListener('change', () => {
-        const hidden = new Set(settings().hiddenLayers || []);
+        const hidden = new Set(hiddenLayers());
         if (input.checked) hidden.delete(layer.name);
         else hidden.add(layer.name);
         setLayers([...hidden], `${input.checked ? 'Show' : 'Hide'} layer ${layer.name}`);
       });
       const what = [layer.count ? `${layer.count.toLocaleString()} line${layer.count === 1 ? '' : 's'}` : '', layer.texts ? `${layer.texts.toLocaleString()} text${layer.texts === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
-      row.append(input, el('span', 'plan-layer-name', layer.name), el('small', null, what));
-      row.title = layer.hiddenInFile ? `${layer.name}: switched off in the drawing itself` : layer.name;
-      const sync = () => { input.checked = !(settings().hiddenLayers || []).includes(layer.name); };
-      sync();
-      panel.fields.push(sync);
+      label.append(input, el('span', 'plan-layer-name', layer.name), el('small', null, what));
+      label.title = layer.hiddenInFile ? `${layer.name}: switched off in the drawing itself` : layer.name;
+      row.append(label);
+      const sync = [() => { input.checked = !hiddenLayers().includes(layer.name); }];
+      // Only layers with lines can become walls.
+      if (layer.count) {
+        const wall = el('button', 'plan-wall-toggle', 'Wall');
+        wall.type = 'button';
+        wall.addEventListener('click', () => {
+          const chosen = new Set(wallLayers());
+          const raise = !chosen.has(layer.name);
+          if (raise) chosen.add(layer.name);
+          else chosen.delete(layer.name);
+          writeWalls({ layers: [...chosen] }, `${raise ? 'Raise' : 'Flatten'} walls on ${layer.name}`);
+        });
+        sync.push(() => {
+          const on = wallLayers().includes(layer.name);
+          wall.classList.toggle('is-on', on);
+          wall.setAttribute('aria-pressed', String(on));
+          wall.classList.toggle('is-suggested', !on && suggested.includes(layer.name));
+          wall.title = on ? `${layer.name} is raised into walls: click to lay it flat again` : `Raise ${layer.name} into walls${suggested.includes(layer.name) ? ' (it looks like walls)' : ''}`;
+        });
+        row.append(wall);
+      }
+      sync.forEach((show) => { show(); panel.fields.push(show); });
       layerList.append(row);
     });
-    const syncHead = () => { layersHead.textContent = `Layers (${visibleCount()} of ${data.layers.length} shown)`; };
+    const syncHead = () => {
+      const shown = data.layers.filter((layer) => !hiddenLayers().includes(layer.name)).length;
+      layersHead.textContent = `Layers · ${shown} of ${data.layers.length} shown`;
+    };
     syncHead();
     panel.fields.push(syncHead);
     const allRow = el('div', 'button-row');
@@ -451,44 +477,31 @@ export class SceneMode {
     allRow.append(all, notes);
     body.append(layersHead, layerList, allRow);
 
-    // Walls: chosen layers raised into thin see-through walls.
-    body.append(el('span', 'editor-subtitle', 'Raise into walls'));
-    const wallLayers = () => settings().walls?.layers || [];
-    const writeWalls = (patch, label) => write({ walls: { height: DEFAULT_WALL_HEIGHT, opacity: DEFAULT_WALL_OPACITY, ...settings().walls, ...patch } }, label);
-    const suggested = suggestedWallLayers(data);
-    const wallList = el('div', 'plan-layers plan-wall-layers');
-    // Wall-like layers first, then the rest.
-    const ordered = [...data.layers.filter((layer) => suggested.includes(layer.name)), ...data.layers.filter((layer) => layer.count && !suggested.includes(layer.name))];
-    ordered.forEach((layer) => {
-      const row = el('label', 'plan-layer');
-      const input = Object.assign(document.createElement('input'), { type: 'checkbox' });
-      input.addEventListener('change', () => {
-        const chosen = new Set(wallLayers());
-        if (input.checked) chosen.add(layer.name);
-        else chosen.delete(layer.name);
-        writeWalls({ layers: [...chosen] }, `${input.checked ? 'Raise' : 'Flatten'} walls on ${layer.name}`);
-      });
-      row.append(input, el('span', 'plan-layer-name', layer.name), el('small', null, suggested.includes(layer.name) ? 'looks like walls' : ''));
-      const sync = () => { input.checked = wallLayers().includes(layer.name); };
-      sync();
-      panel.fields.push(sync);
-      wallList.append(row);
-    });
+    // Raised walls: how tall and how solid. Shown once a layer is raised.
+    const walls = el('div', 'plan-walls');
     const wallFields = el('div', 'placement-fields');
     wallFields.append(
-      panel.field({ label: 'Height', unit: 'm', step: 0.1, read: () => settings().walls?.height ?? DEFAULT_WALL_HEIGHT, write: (value) => writeWalls({ height: Math.max(0.05, Math.min(50, value)) }, `Wall height ${value} m`), title: 'How tall the raised walls are' }),
+      panel.field({ label: 'Wall height', unit: 'm', step: 0.1, read: () => settings().walls?.height ?? DEFAULT_WALL_HEIGHT, write: (value) => writeWalls({ height: Math.max(0.05, Math.min(50, value)) }, `Wall height ${value} m`), title: 'How tall the raised walls are' }),
       panel.field({ label: 'Solid', unit: '%', step: 5, read: () => Math.round((settings().walls?.opacity ?? DEFAULT_WALL_OPACITY) * 100), write: (value) => writeWalls({ opacity: Math.max(5, Math.min(100, value)) / 100 }, 'Wall see-through'), title: 'How solid the walls look: low is see-through' }),
     );
     const wallHint = el('p', 'editor-hint');
-    const syncWallHint = () => {
+    walls.append(wallFields, wallHint);
+    const syncWalls = () => {
       const count = plan.wallSegments?.length || 0;
-      wallHint.textContent = count
-        ? `${count.toLocaleString()} wall pieces. Solid when playing${count > MAX_WALL_COLLIDERS ? ` (the first ${MAX_WALL_COLLIDERS.toLocaleString()})` : ''}; the flat drawing never is.`
-        : 'Tick a layer to raise its lines into walls. The flat drawing is never solid.';
+      walls.hidden = !wallLayers().length;
+      wallHint.textContent = count > MAX_WALL_COLLIDERS
+        ? `Boxes bump into the first ${MAX_WALL_COLLIDERS.toLocaleString()} of its ${count.toLocaleString()} wall pieces when playing.`
+        : 'Boxes bump into raised walls when playing; the flat drawing never gets in the way.';
     };
-    syncWallHint();
-    panel.fields.push(syncWallHint);
-    body.append(wallList, wallFields, wallHint);
+    syncWalls();
+    panel.fields.push(syncWalls);
+    const wallTip = el('p', 'editor-hint', suggested.length
+      ? `Tip: "Wall" raises a layer into see-through walls (${suggested.join(', ')} look${suggested.length === 1 ? 's' : ''} like walls).`
+      : 'Tip: "Wall" raises a layer into see-through walls.');
+    const syncTip = () => { wallTip.hidden = wallLayers().length > 0; };
+    syncTip();
+    panel.fields.push(syncTip);
+    body.append(wallTip, walls);
 
     const skipped = Object.entries(data.skipped);
     if (skipped.length) {
@@ -601,7 +614,8 @@ export class SceneMode {
 
   // Putting a tool on a robot, or making an object move along with another one (or one robot joint).
   connectionsSection(item, runtime, panel) {
-    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing' || this.editor.playing) return null;
+    // A floor plan is the ground things stand on: it never moves along with anything.
+    if (!runtime || ['loading', 'missing', 'plan'].includes(runtime.kind) || this.editor.playing) return null;
     const { editor } = this;
     const linked = Boolean(item.mount || item.attach);
     const mountAnchor = anchorsOf(runtime).find((anchor) => anchor.type === 'tool-mount');
@@ -643,7 +657,7 @@ export class SceneMode {
     // Any object can move along with another one (a camera on a robot arm, a box on a pallet):
     // pick it in the view, or choose the object from a short list, then (for a robot) which part.
     const excluded = dependentsOf(editor.document, item.id);
-    const targets = editor.items.filter((other) => other.id !== item.id && !excluded.has(other.id));
+    const targets = editor.items.filter((other) => other.id !== item.id && !excluded.has(other.id) && other.source.kind !== 'plan');
     if (targets.length) {
       body.append(Object.assign(document.createElement('span'), { className: 'editor-subtitle', textContent: 'Move along with' }));
       const pick = button('Pick it in the view', () => this.startAttachPick(item), 'Click the object (or the exact robot part) it should move with');
@@ -676,7 +690,8 @@ export class SceneMode {
 
   // How the object behaves when the scene plays; models can be made solid.
   physicsSection(item, runtime, panel) {
-    if (!runtime || runtime.kind === 'loading' || runtime.kind === 'missing' || this.editor.playing) return null;
+    // Floor plans say whether their walls are solid in their own panel.
+    if (!runtime || ['loading', 'missing', 'plan'].includes(runtime.kind) || this.editor.playing) return null;
     const text = describeBody(item, runtime);
     if (runtime.kind !== 'model' && !text) return null;
     const { node, body } = panel.group('physics', 'When playing', { open: false });
@@ -760,7 +775,7 @@ export class SceneMode {
     this.ui.speed.hidden = !playing;
     if (!playing) this.setPaused(false);
     this.ui.toolbar.classList.toggle('is-playing', playing);
-    [this.ui.addButton, this.ui.undo, this.ui.redo, this.ui.freeRotate, ...this.ui.toolButtons].forEach((button) => { button.disabled = playing; });
+    [this.ui.addButton, this.ui.planButton, this.ui.undo, this.ui.redo, this.ui.freeRotate, ...this.ui.toolButtons].forEach((button) => { button.disabled = playing; });
     if (!playing) this.updateHistoryButtons();
     this.updateGuides();
   }
@@ -1039,6 +1054,13 @@ export class SceneMode {
       button.addEventListener('click', () => this.setTool(button.dataset.sceneTool));
     });
     ui.snap.addEventListener('change', () => this.editor.setSnap(Number(ui.snap.value)));
+    // Floor plan: a factory plan (AutoCAD DXF) to lay the scene out on.
+    ui.planButton.addEventListener('click', () => ui.planInput.click());
+    ui.planInput.addEventListener('change', () => {
+      const [file] = ui.planInput.files;
+      ui.planInput.value = '';
+      if (file) this.importPlan(file);
+    });
     ui.undo.addEventListener('click', () => this.editor.undo());
     ui.redo.addEventListener('click', () => this.editor.redo());
     ui.play.addEventListener('click', () => this.togglePlay());
@@ -1111,6 +1133,7 @@ export class SceneMode {
       let handled = true;
       if (command && key === 'z' && !event.shiftKey) editor.undo();
       else if (command && (key === 'y' || (key === 'z' && event.shiftKey))) editor.redo();
+      else if (command && (key === 'd' || key === 'c') && editor.selectedItem?.source.kind === 'plan') this.onStatus?.('A floor plan can\'t be copied: import the file again to use it twice.');
       else if (command && key === 'd' && selected) editor.duplicate(selected);
       else if (command && key === 's') this.saveNow();
       else if (command && key === 'c' && selected) this.copy(selected);
@@ -1146,7 +1169,7 @@ export class SceneMode {
     const excluded = dependentsOf(editor.document, item.id);
     const resolve = (hit) => {
       const targetId = hit && editor.itemIdFor(hit.object);
-      if (!targetId || targetId === item.id || excluded.has(targetId)) return null;
+      if (!targetId || targetId === item.id || excluded.has(targetId) || editor.item(targetId)?.source.kind === 'plan') return null;
       const rig = editor.runtimes.get(targetId)?.asset?.rig;
       let joint = null;
       for (let current = hit.object; current && !current.userData.sceneItemId && !joint; current = current.parent) {
@@ -1387,27 +1410,44 @@ export class SceneMode {
     const linked = Boolean(item.mount || item.attach);
     const robot = runtime?.asset?.rig?.joints.length;
     const toggle = (key, label) => editor.updateItem(id, { [key]: item[key] ? undefined : true }, `${label} ${item.name}`);
+    if (item.source.kind === 'plan') {
+      // A floor plan: what makes sense for the ground under everything.
+      this.menu.open({
+        x,
+        y,
+        title: item.name,
+        items: [
+          { label: 'Zoom to it', icon: 'Focus', shortcut: 'F', run: () => this.frame(id) },
+          { label: 'View it from above', icon: 'Eye', run: () => this.view('top') },
+          { label: 'Rename', icon: 'Pencil', shortcut: 'F2', run: () => this.rename(), disabled: playing },
+          'separator',
+          { label: 'Layers and walls', icon: 'Layers', run: () => this.revealGroup('Floor plan') },
+          { label: 'Centre on the origin', icon: 'Crosshair', run: () => this.centrePlan(id), disabled: playing || item.locked },
+          'separator',
+          { label: item.hidden ? 'Show' : 'Hide', icon: item.hidden ? 'Eye' : 'EyeOff', run: () => toggle('hidden', item.hidden ? 'Show' : 'Hide'), disabled: playing },
+          { label: item.locked ? 'Unlock' : 'Lock in place', icon: item.locked ? 'LockOpen' : 'Lock', run: () => toggle('locked', item.locked ? 'Unlock' : 'Lock'), disabled: playing },
+          'separator',
+          { label: 'Delete', icon: 'Trash2', shortcut: 'Del', danger: true, run: () => editor.removeItems([id]), disabled: playing },
+        ],
+      });
+      return;
+    }
     const items = [
       { label: 'Zoom to it', icon: 'Focus', shortcut: 'F', run: () => this.frame(id) },
       { label: 'Rename', icon: 'Pencil', shortcut: 'F2', run: () => this.rename(), disabled: playing },
       'separator',
       { label: 'Duplicate', icon: 'Copy', shortcut: 'Ctrl+D', run: () => editor.duplicate(id), disabled: playing },
       { label: 'Copy', icon: 'ClipboardCopy', shortcut: 'Ctrl+C', run: () => this.copy(id) },
-      { label: 'Paste', icon: 'ClipboardPaste', shortcut: 'Ctrl+V', run: () => this.paste(), disabled: playing || !this.clipboard },
+      // Paste only once something has been copied.
+      ...(this.clipboard ? [{ label: `Paste ${this.clipboard.name}`, icon: 'ClipboardPaste', shortcut: 'Ctrl+V', run: () => this.paste(), disabled: playing }] : []),
       'separator',
       { label: item.hidden ? 'Show' : 'Hide', icon: item.hidden ? 'Eye' : 'EyeOff', run: () => toggle('hidden', item.hidden ? 'Show' : 'Hide'), disabled: playing },
       { label: item.locked ? 'Unlock' : 'Lock in place', icon: item.locked ? 'LockOpen' : 'Lock', run: () => toggle('locked', item.locked ? 'Unlock' : 'Lock'), disabled: playing },
       linked
         ? { label: item.mount ? 'Take off the robot' : 'Stop moving with it', icon: 'Unlink', run: () => editor.unlinkItem(id), disabled: playing }
-        : { label: 'Move along with…', icon: 'Link', run: () => this.startAttachPick(item), disabled: playing || editor.items.length < 2 },
+        : { label: 'Move along with…', icon: 'Link', run: () => this.startAttachPick(item), disabled: playing || !editor.items.some((other) => other.id !== id && other.source.kind !== 'plan') },
     ];
     if (robot) items.push({ label: 'Edit its program', icon: 'ListVideo', run: () => this.revealGroup('Program') });
-    if (runtime?.kind === 'plan') {
-      items.push(
-        { label: 'Layers and walls', icon: 'Layers', run: () => this.revealGroup('Floor plan') },
-        { label: 'Centre on the origin', icon: 'Crosshair', run: () => this.centrePlan(id), disabled: playing || item.locked },
-      );
-    }
     items.push('separator', { label: 'Delete', icon: 'Trash2', shortcut: 'Del', danger: true, run: () => editor.removeItems([id]), disabled: playing });
     this.menu.open({ x, y, title: item.name, items });
   }
@@ -1418,8 +1458,9 @@ export class SceneMode {
       x,
       y,
       items: [
-        { label: this.clipboard ? `Paste ${this.clipboard.name} here` : 'Paste here', icon: 'ClipboardPaste', shortcut: 'Ctrl+V', run: () => this.paste(point), disabled: playing || !this.clipboard || !point },
+        ...(this.clipboard ? [{ label: `Paste ${this.clipboard.name} here`, icon: 'ClipboardPaste', shortcut: 'Ctrl+V', run: () => this.paste(point), disabled: playing || !point }] : []),
         { label: 'Add something…', icon: 'Plus', shortcut: 'A', run: () => this.drawer.setOpen(true), disabled: playing },
+        { label: 'Floor plan (.dxf)…', icon: 'LandPlot', run: () => this.ui.planInput.click(), disabled: playing },
         'separator',
         { label: 'See everything', icon: 'Scan', shortcut: 'Home', run: () => this.frame(null) },
         { label: 'View from above', icon: 'Eye', run: () => this.view('top') },
@@ -1447,7 +1488,7 @@ export class SceneMode {
 
   copy(id) {
     const item = this.editor.item(id);
-    if (!item) return;
+    if (!item || item.source.kind === 'plan') return;
     this.editor.capturePoses();
     const fresh = this.editor.item(id);
     const root = this.editor.runtimes.get(id)?.root;
@@ -1518,6 +1559,7 @@ export class SceneMode {
       ui.toast.hidden = true;
     });
     ui.emptyAdd.addEventListener('click', () => this.drawer.setOpen(true));
+    ui.emptyPlan.addEventListener('click', () => ui.planInput.click());
     ui.help.addEventListener('click', () => this.setHelpOpen(ui.helpPanel.hidden));
     ui.helpClose.addEventListener('click', () => this.setHelpOpen(false));
     document.addEventListener('pointerdown', (event) => {
