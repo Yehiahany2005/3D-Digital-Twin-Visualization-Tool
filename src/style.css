@@ -2553,3 +2553,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 body.is-scrubbing,
 body.is-scrubbing * { cursor: ew-resize !important; user-select: none; }
 
+
+/* Floor plan layers (Selected → Floor plan) */
+.plan-layers { display: flex; flex-direction: column; max-height: 11rem; overflow-y: auto; margin: 0.25rem 0 0.4rem; border: 1px solid var(--border-soft); border-radius: 4px; padding: 0.15rem 0.35rem; }
+.plan-layer { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0; font-size: 0.8rem; cursor: pointer; }
+.plan-layer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-layer small { color: var(--subtle); white-space: nowrap; }

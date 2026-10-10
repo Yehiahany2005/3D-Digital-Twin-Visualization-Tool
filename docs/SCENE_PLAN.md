@@ -522,3 +522,34 @@ pallet): boxes picked at the end stop and put on grid spots 1, 2, 3 in turn, no 
 - Clicking in the 3D view ends typing in a field, so shortcuts work again (after "New scene" the
   name field used to keep them from working).
 
+
+### 9.12 Floor plans from AutoCAD (DXF) (2026-10-10)
+
+A factory's floor plan (an AutoCAD **DXF**) can be imported into a scene as the reference to place
+robots and conveyors on: **Add → Floor plan**, or a `.dxf` through **Import file**. It is drawn
+flat on the floor at true size, and is an ordinary scene item (select, move, turn, lock, hide,
+undo, Explorer, saved with the scene, packed into the `.dtscene` bundle with the DXF file itself).
+
+| What | How |
+|---|---|
+| Reading the file | Our own small parser, `src/studio/plan/dxf.js` (no library: the maintained ones, `dxf-json` / `@mlightcad/dxf-json`, are GPL-3.0; the MIT ones are unmaintained since 2022 (`dxf-parser`) or pull in lodash and build one array per entity (`dxf`)). LINE, LWPOLYLINE / POLYLINE (bulges = arcs), ARC, CIRCLE, ELLIPSE, SPLINE (NURBS, sampled), TEXT / MTEXT / ATTRIB, SOLID / TRACE / 3DFACE outlines, LEADER, INSERT (base point, scale, rotation, column/row arrays, nesting up to 16 deep; layer 0 inside a block takes the insert's layer), DIMENSION (drawn from its ready-made block). Entities with a downward extrusion (mirrored in AutoCAD) are mirrored. Paper space is ignored. Hatches, 3D solids, meshes, points… are skipped and listed ("Not drawn: 12 hatch"). Curves are cut finely enough to be off by about 1/20000 of the plan (2 mm on a 40 m hall). |
+| Units | `$INSUNITS` → metres. Missing: guessed so the building is 10–300 m (mm, then m, cm, ft, in) and marked "guessed: check them". **Drawn in** (Selected → Floor plan) corrects it; the plan scales about its middle. |
+| Middle and size | From the building's layers (not notes or dimensions), leaving out the outer 0.5 % of points so a stray line far away doesn't count. Coordinates are stored relative to that middle, so plans drawn far from their origin keep full precision. A new plan is centred on the scene's origin and **locked**; **Centre on the origin** (panel or right-click) does it again. |
+| Look | Lines 2 mm above the floor. CAD View: dark lines; Digital Twin View: glowing accent lines (the plan keeps its own look: `userData.ownLook`). Text: flat labels at their drawn size, every label of a layer in one mesh with its letters in a shared canvas picture. |
+| Layers | Listed with a switch and how many lines / texts each has. Layers named like dimensions or notes (`dim`, `anno`, `text`, `note`, `hatch`, `defpoints`, `title`, `border`…) and layers switched off in the file start hidden; **Show all** / **Hide notes**. |
+| Walls | **Raise into walls**: tick layers (wall-like names first, "looks like walls"); height (default 3 m) and how solid they look (default 35 %). Raised walls are thin boxes for physics (up to 20,000); the flat drawing is never a collider. |
+| Picking | Walls and labels are skipped by the normal click; only when nothing else is under the pointer does a click within 6 px of a shown line (a bucket grid over the lines, < 1 ms per test) select the plan. Things placed on a plan select as before. |
+| Performance | One `LineSegments` per layer. Measured (software rendering, so frame rates are not representative): 210k segments on 15 layers + 2,000 labels = 38 draw calls, imported in ~2 s, picking ~1–3 ms. |
+| Errors | `.dwg`: "save it as DXF from AutoCAD" (also in the Machine tab). Binary DXF, a renamed DWG, a damaged file or one with nothing drawable get their own message. |
+| Storage | The DXF file is kept with imported models (IndexedDB) but never listed as a model; scene items use `source: { kind: 'plan', id, name }` and `item.plan = { unit, unitGuessed, hiddenLayers, walls: { layers, height, opacity } }`. A missing file shows the grey box with **Locate file…**. |
+
+Code: `src/studio/plan/` (`dxf.js` parser, `FloorPlan.js` drawing/walls/picking, `PlanLibrary.js`
+file cache and first settings, `sampleDxf.js` writer for tests), `SceneMode.planSection()` /
+`importPlan()` / `planAt()`. Tests: `dxf.test.js` (every entity type, bulges, nested inserts,
+units, mirroring, errors, 100k segments), `FloorPlan.test.js` (scale, walls, picking, a box
+stopped by a diagonal wall). Browser check: `npm run check:floor-plan` (with `npm run dev`
+running) imports `docs/samples/sample-hall.dxf` (a 40 × 25 m hall in mm) and checks scale,
+layers, walls, picking with a conveyor on top, Digital Twin View, save + reload, export + reopen.
+
+Next: snap to plan lines and corners while moving things; per-layer colours from the file;
+hatch fills; a "My floor plans" shelf in the Add drawer.

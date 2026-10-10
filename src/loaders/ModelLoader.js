@@ -66,6 +66,9 @@ export function unsupportedFormatMessage(fileName) {
   const extension = fileExtension(fileName);
   if (FORMATS[extension]) return null;
   const application = PROPRIETARY_FORMATS[extension];
+  if (extension === 'dwg') {
+    return 'DWG is AutoCAD\'s own closed format and can\'t be read here. For a floor plan, use Save As → "AutoCAD DXF (*.dxf)" in AutoCAD and import it in the Scene tab (Add → Floor plan).';
+  }
   if (application) {
     return `.${extension} files come from ${application} and can only be opened there. `
       + `In ${application}, use File → Save As / Export → STEP (.step), then import that file.`;

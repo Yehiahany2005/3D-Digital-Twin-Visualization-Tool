@@ -26,6 +26,9 @@ import { targetFrame, targetFromHit, targetLabel } from './program/targets.js';
 import { resolveTool } from '../motion/InverseKinematics.js';
 import { reachFor } from './program/reachFor.js';
 import { ContextMenu } from '../ui/ContextMenu.js';
+import { DxfError, PLAN_UNITS } from './plan/dxf.js';
+import { defaultPlanSettings, isPlanFile, readPlan, suggestedWallLayers } from './plan/PlanLibrary.js';
+import { DEFAULT_WALL_HEIGHT, DEFAULT_WALL_OPACITY, MAX_WALL_COLLIDERS } from './plan/FloorPlan.js';
 
 const SAVE_DELAY_MS = 600;
 const CAMERA_FLIGHT_SECONDS = 0.45;
@@ -36,6 +39,8 @@ const CLICK_TOLERANCE_PX = 5;
 const POSE_CHECK_MS = 3000;
 // Smallest area framed and lit, so an empty or tiny scene still has a sensible view.
 const MIN_SCENE_SIZE = 6;
+// How close (in screen pixels) a click must be to a floor plan's line to select the plan.
+const PLAN_PICK_PX = 6;
 
 function readSetting(key) {
   try {
@@ -53,6 +58,12 @@ function writeSetting(key, value) {
   }
 }
 
+// Hidden objects (or ones inside a hidden layer or item) can't be clicked.
+function isShown(object) {
+  for (let current = object; current; current = current.parent) if (!current.visible) return false;
+  return true;
+}
+
 function isTyping(event) {
   return Boolean(event.target.closest?.('input, select, textarea, [contenteditable="true"]'));
 }
@@ -64,7 +75,7 @@ function isTyping(event) {
 // onSceneChange(scene) tells the tab the open scene's name or contents changed; onScenesSaved()
 // that the list of saved scenes may have changed.
 export class SceneMode {
-  constructor({ scene, cameraManager, controls, renderer, picker, outline, reachPanel, floor, templates, ui, onStatus, onError, onEditInMachine, onEnvironmentChange, onSceneChange, onScenesSaved }) {
+  constructor({ scene, cameraManager, controls, renderer, picker, outline, reachPanel, floor, templates, ui, onStatus, onError, onEditInMachine, onEnvironmentChange, onSceneChange, onScenesSaved, isDigitalTwin }) {
     this.scene = scene;
     this.floor = floor;
     this.cameraManager = cameraManager;
@@ -78,6 +89,8 @@ export class SceneMode {
     this.onEnvironmentChange = onEnvironmentChange;
     this.onSceneChange = onSceneChange;
     this.onScenesSaved = onScenesSaved;
+    // Whether Digital Twin View is on (floor plans glow in it).
+    this.isDigitalTwin = isDigitalTwin || (() => false);
     this.active = false;
     this.opened = false;
 
@@ -130,6 +143,7 @@ export class SceneMode {
       onRelink: (item) => this.relink(item),
       iconFor: (item, runtime) => this.iconFor(item, runtime),
       extraSections: [
+        (item, runtime, panel) => this.planSection(item, runtime, panel),
         (item, runtime, panel) => this.paramsSection(item, runtime, panel),
         (item, runtime, panel) => this.programPanel.section(item, runtime, panel),
         (item, runtime, panel) => this.connectionsSection(item, runtime, panel),
@@ -148,6 +162,7 @@ export class SceneMode {
       preview: (entry) => this.preview(entry),
       place: (entry, placement) => this.place(entry, placement),
       onImport: (file) => this.importFile(file),
+      onImportPlan: (file) => this.importPlan(file),
       onOpenChange: (open) => {
         if (open) this.loadThumbnails();
         this.updateGuides();
@@ -171,6 +186,7 @@ export class SceneMode {
       }
       if (type === 'item-ready') {
         if (detail?.id === this.editor.selectedId) this.bindReach();
+        if (detail?.kind === 'plan') detail.component.setDigital(this.isDigitalTwin());
         this.environmentChanged();
       }
       if (type === 'frame') this.frame(detail);
@@ -190,6 +206,11 @@ export class SceneMode {
   // A model referred to by a scene: built-in, or imported (kept in this browser).
   async resolveConfig(source) {
     if (source.kind === 'builtin') return getAssetConfig(source.id) || null;
+    // Floor plans are kept like imported models, but are not models (never in the Machine tab).
+    if (source.kind === 'plan') {
+      const file = await getStoredImport(source.id);
+      return file ? { id: source.id, name: file.name, file, plan: true } : null;
+    }
     if (source.kind !== 'import') return null;
     const known = getAssetConfig(source.id);
     if (known) return known;
@@ -266,6 +287,10 @@ export class SceneMode {
   }
 
   async importFile(file) {
+    if (isPlanFile(file.name) || /\.dwg$/i.test(file.name)) {
+      await this.importPlan(file);
+      return;
+    }
     const formatError = unsupportedFormatMessage(file.name);
     if (formatError) {
       this.onError?.(formatError);
@@ -288,6 +313,188 @@ export class SceneMode {
     this.onStatus?.(null);
     this.environmentChanged();
     this.frame(this.editor.selectedId);
+  }
+
+  // A DXF floor plan: read, added centred on the origin, locked so it isn't dragged by accident,
+  // and selected so its layers and units are right there.
+  async importPlan(file) {
+    if (/\.dwg$/i.test(file.name)) {
+      this.onError?.('DWG is AutoCAD\'s own closed format and can\'t be read here. In AutoCAD, use Save As → "AutoCAD DXF (*.dxf)", then import the .dxf file.');
+      return;
+    }
+    if (!isPlanFile(file.name)) {
+      this.onError?.(`${file.name} is not a floor plan. Floor plans are AutoCAD DXF files (.dxf).`);
+      return;
+    }
+    this.drawer.setOpen(false);
+    this.onStatus?.(`Reading ${file.name}…`);
+    let id;
+    let data;
+    try {
+      id = await storeImport(file);
+    } catch (error) {
+      console.warn('Floor plan could not be saved in this browser.', error);
+      this.onStatus?.(null);
+      this.onError?.("This floor plan couldn't be saved on this device (the browser may be out of space).");
+      return;
+    }
+    try {
+      data = await readPlan(id, file);
+    } catch (error) {
+      this.onStatus?.(null);
+      if (!(error instanceof DxfError)) console.error('Floor plan could not be read.', error);
+      this.onError?.(`Couldn't read ${file.name}: ${error instanceof DxfError ? error.message : 'the file is damaged or not a DXF file.'}`);
+      return;
+    }
+    const plan = defaultPlanSettings(data);
+    const { ready } = this.editor.addItem({
+      source: { kind: 'plan', id, name: file.name },
+      name: file.name.replace(/\.[^.]+$/, ''),
+      position: [0, 0, 0],
+      fields: { plan, locked: true },
+      label: `Import floor plan ${file.name}`,
+    });
+    await ready;
+    this.onStatus?.(null);
+    this.environmentChanged();
+    this.setGrid(this.gridWanted);
+    this.view('top');
+    const runtime = this.editor.runtimes.get(this.editor.selectedId);
+    const [width, depth] = runtime?.component?.size || [0, 0];
+    const skipped = Object.entries(data.skipped).map(([type, n]) => `${n} ${type.toLowerCase()}`);
+    const units = plan.unitGuessed ? `units guessed as ${PLAN_UNITS[plan.unit].label.toLowerCase()}, check them under Floor plan` : `in ${PLAN_UNITS[plan.unit].label.toLowerCase()}`;
+    this.onStatus?.(`Floor plan ${width.toFixed(1)} × ${depth.toFixed(1)} m (${units}). Locked so it can't be dragged by accident.${skipped.length ? ` Not drawn: ${skipped.join(', ')}.` : ''}`);
+  }
+
+  // Moves a plan so its middle is on the scene's origin (keeping its height and turn).
+  centrePlan(id) {
+    const item = this.editor.item(id);
+    if (!item) return;
+    this.editor.updateItem(id, { position: [0, item.position[1], 0] }, `Centre ${item.name} on the origin`);
+    this.environmentChanged();
+  }
+
+  // Selected → Floor plan: units, size, layers (show/hide, line counts), raised walls, what was skipped.
+  planSection(item, runtime, panel) {
+    if (runtime?.kind !== 'plan' || this.editor.playing) return null;
+    const { editor } = this;
+    const plan = runtime.component;
+    const { data } = plan;
+    const { node, body } = panel.group('plan', 'Floor plan');
+    const settings = () => editor.item(item.id)?.plan || {};
+    const write = (patch, label) => editor.updateItem(item.id, { plan: { ...settings(), ...patch } }, label);
+    const el = (tag, className, text) => Object.assign(document.createElement(tag), className ? { className } : {}, text !== undefined ? { textContent: text } : {});
+
+    // Units: from the file, or guessed from the size; changing them rescales the plan.
+    const unitRow = el('label', 'editor-field');
+    const unit = document.createElement('select');
+    unit.setAttribute('aria-label', 'Drawing units');
+    Object.entries(PLAN_UNITS).forEach(([key, { label }]) => unit.append(new Option(label, key)));
+    unit.addEventListener('change', () => {
+      const { unitGuessed, ...rest } = settings();
+      editor.updateItem(item.id, { plan: { ...rest, unit: unit.value } }, `Set ${item.name} units to ${PLAN_UNITS[unit.value].label.toLowerCase()}`);
+      this.environmentChanged();
+    });
+    unitRow.append(el('span', null, 'Drawn in'), unit);
+    const size = el('p', 'editor-hint');
+    const show = () => {
+      if (document.activeElement !== unit) unit.value = settings().unit || 'm';
+      const [width, depth] = plan.size;
+      const fromFile = data.metresPerUnit ? 'units from the file' : settings().unitGuessed ? 'units guessed from its size: check them' : 'units chosen by you';
+      size.textContent = `${width.toFixed(1)} × ${depth.toFixed(1)} m · ${fromFile}`;
+    };
+    show();
+    panel.fields.push(show);
+    const centre = el('button', null, 'Centre on the origin');
+    centre.type = 'button';
+    centre.title = 'Move the plan so its middle is at the scene\'s origin';
+    centre.disabled = Boolean(item.locked);
+    centre.addEventListener('click', () => this.centrePlan(item.id));
+    const centreRow = el('div', 'button-row');
+    centreRow.append(centre);
+    body.append(unitRow, size, centreRow);
+    if (item.locked) body.append(el('p', 'editor-hint', 'Unlock it (padlock above) to move or centre it.'));
+
+    // Layers: one row each, with a switch and how much is on it.
+    const visibleCount = () => data.layers.filter((layer) => !(settings().hiddenLayers || []).includes(layer.name)).length;
+    const layersHead = el('span', 'editor-subtitle');
+    const layerList = el('div', 'plan-layers');
+    const setLayers = (hidden, label) => write({ hiddenLayers: hidden }, label);
+    data.layers.forEach((layer) => {
+      const row = el('label', 'plan-layer');
+      const input = Object.assign(document.createElement('input'), { type: 'checkbox' });
+      input.addEventListener('change', () => {
+        const hidden = new Set(settings().hiddenLayers || []);
+        if (input.checked) hidden.delete(layer.name);
+        else hidden.add(layer.name);
+        setLayers([...hidden], `${input.checked ? 'Show' : 'Hide'} layer ${layer.name}`);
+      });
+      const what = [layer.count ? `${layer.count.toLocaleString()} line${layer.count === 1 ? '' : 's'}` : '', layer.texts ? `${layer.texts.toLocaleString()} text${layer.texts === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+      row.append(input, el('span', 'plan-layer-name', layer.name), el('small', null, what));
+      row.title = layer.hiddenInFile ? `${layer.name}: switched off in the drawing itself` : layer.name;
+      const sync = () => { input.checked = !(settings().hiddenLayers || []).includes(layer.name); };
+      sync();
+      panel.fields.push(sync);
+      layerList.append(row);
+    });
+    const syncHead = () => { layersHead.textContent = `Layers (${visibleCount()} of ${data.layers.length} shown)`; };
+    syncHead();
+    panel.fields.push(syncHead);
+    const allRow = el('div', 'button-row');
+    const all = el('button', null, 'Show all');
+    all.type = 'button';
+    all.addEventListener('click', () => setLayers([], `Show every layer of ${item.name}`));
+    const notes = el('button', null, 'Hide notes');
+    notes.type = 'button';
+    notes.title = 'Hide dimension, text and note layers again';
+    notes.addEventListener('click', () => setLayers(defaultPlanSettings(data).hiddenLayers, `Hide notes on ${item.name}`));
+    allRow.append(all, notes);
+    body.append(layersHead, layerList, allRow);
+
+    // Walls: chosen layers raised into thin see-through walls.
+    body.append(el('span', 'editor-subtitle', 'Raise into walls'));
+    const wallLayers = () => settings().walls?.layers || [];
+    const writeWalls = (patch, label) => write({ walls: { height: DEFAULT_WALL_HEIGHT, opacity: DEFAULT_WALL_OPACITY, ...settings().walls, ...patch } }, label);
+    const suggested = suggestedWallLayers(data);
+    const wallList = el('div', 'plan-layers plan-wall-layers');
+    // Wall-like layers first, then the rest.
+    const ordered = [...data.layers.filter((layer) => suggested.includes(layer.name)), ...data.layers.filter((layer) => layer.count && !suggested.includes(layer.name))];
+    ordered.forEach((layer) => {
+      const row = el('label', 'plan-layer');
+      const input = Object.assign(document.createElement('input'), { type: 'checkbox' });
+      input.addEventListener('change', () => {
+        const chosen = new Set(wallLayers());
+        if (input.checked) chosen.add(layer.name);
+        else chosen.delete(layer.name);
+        writeWalls({ layers: [...chosen] }, `${input.checked ? 'Raise' : 'Flatten'} walls on ${layer.name}`);
+      });
+      row.append(input, el('span', 'plan-layer-name', layer.name), el('small', null, suggested.includes(layer.name) ? 'looks like walls' : ''));
+      const sync = () => { input.checked = wallLayers().includes(layer.name); };
+      sync();
+      panel.fields.push(sync);
+      wallList.append(row);
+    });
+    const wallFields = el('div', 'placement-fields');
+    wallFields.append(
+      panel.field({ label: 'Height', unit: 'm', step: 0.1, read: () => settings().walls?.height ?? DEFAULT_WALL_HEIGHT, write: (value) => writeWalls({ height: Math.max(0.05, Math.min(50, value)) }, `Wall height ${value} m`), title: 'How tall the raised walls are' }),
+      panel.field({ label: 'Solid', unit: '%', step: 5, read: () => Math.round((settings().walls?.opacity ?? DEFAULT_WALL_OPACITY) * 100), write: (value) => writeWalls({ opacity: Math.max(5, Math.min(100, value)) / 100 }, 'Wall see-through'), title: 'How solid the walls look: low is see-through' }),
+    );
+    const wallHint = el('p', 'editor-hint');
+    const syncWallHint = () => {
+      const count = plan.wallSegments?.length || 0;
+      wallHint.textContent = count
+        ? `${count.toLocaleString()} wall pieces. Solid when playing${count > MAX_WALL_COLLIDERS ? ` (the first ${MAX_WALL_COLLIDERS.toLocaleString()})` : ''}; the flat drawing never is.`
+        : 'Tick a layer to raise its lines into walls. The flat drawing is never solid.';
+    };
+    syncWallHint();
+    panel.fields.push(syncWallHint);
+    body.append(wallList, wallFields, wallHint);
+
+    const skipped = Object.entries(data.skipped);
+    if (skipped.length) {
+      body.append(el('p', 'editor-hint', `Not drawn: ${skipped.map(([type, n]) => `${n.toLocaleString()} ${type.toLowerCase()}`).join(', ')}.`));
+    }
+    return node;
   }
 
   // A spot on the floor beside everything already placed, so a new model doesn't land inside
@@ -332,12 +539,13 @@ export class SceneMode {
         this.onError?.("The file couldn't be saved in this browser (it may be out of space).");
         return;
       }
-      if (!getAssetConfig(id)) registerImportedAsset(file, { id, stored: true });
+      const kind = item.source.kind;
+      if (kind === 'import' && !getAssetConfig(id)) registerImportedAsset(file, { id, stored: true });
       // Every item that used the missing file now uses this one.
       const missingId = item.source.id;
       this.editor.commit(`Use ${file.name}`, (document) => {
         document.items.forEach((candidate) => {
-          if (candidate.source.kind === 'import' && candidate.source.id === missingId) candidate.source = { kind: 'import', id, name: file.name };
+          if (candidate.source.kind === kind && candidate.source.id === missingId) candidate.source = { kind, id, name: file.name };
         });
       });
     });
@@ -567,6 +775,7 @@ export class SceneMode {
   }
 
   iconFor(item, runtime) {
+    if (item.source.kind === 'plan') return 'LandPlot';
     if (item.source.kind === 'catalog') return getComponent(item.source.id)?.icon || 'Package';
     return runtime?.asset?.rig?.joints.length ? 'Bot' : 'Box';
   }
@@ -577,6 +786,11 @@ export class SceneMode {
       return definition ? `${definition.name} · ${definition.category}` : `Unknown part "${item.source.id}"`;
     }
     if (item.source.kind === 'builtin') return `${getAssetConfig(item.source.id)?.type || 'Model'} · built-in model`;
+    if (item.source.kind === 'plan') {
+      const data = runtime?.kind === 'plan' ? runtime.component.data : null;
+      const lines = data ? data.layers.reduce((sum, layer) => sum + layer.count, 0) : 0;
+      return `Floor plan (DXF): ${item.source.name || item.source.id}${data ? ` · ${data.layers.length} layers · ${lines.toLocaleString()} lines` : ''}`;
+    }
     const joints = runtime?.asset?.rig?.joints.length;
     return `Imported ${formatLabel(item.source.name || '')} file: ${item.source.name || item.source.id}${joints ? ` · ${joints} joints` : ''}`;
   }
@@ -749,7 +963,7 @@ export class SceneMode {
   async saveToProject() {
     await this.saveNow();
     const scene = structuredClone(this.editor.document);
-    const imported = [...new Set(scene.items.filter((item) => item.source.kind === 'import').map((item) => item.source.name || item.source.id))];
+    const imported = [...new Set(scene.items.filter((item) => item.source.kind === 'import' || item.source.kind === 'plan').map((item) => item.source.name || item.source.id))];
     if (imported.length) {
       this.onError?.(`Can't save to the project: it uses imported models (${imported.join(', ')}). Built-in scenes can only use built-in models and parts; use Export for this one.`);
       return;
@@ -786,7 +1000,7 @@ export class SceneMode {
     for (const { id, file: model } of bundle.models) {
       try {
         const storedId = await storeImport(model);
-        if (!getAssetConfig(storedId)) registerImportedAsset(model, { id: storedId, stored: true });
+        if (!isPlanFile(model.name) && !getAssetConfig(storedId)) registerImportedAsset(model, { id: storedId, stored: true });
         remap.set(id, storedId);
       } catch {
         this.onError?.(`${model.name} couldn't be saved in this browser (it may be out of space).`);
@@ -801,7 +1015,7 @@ export class SceneMode {
     });
     const scene = bundle.scene;
     scene.items.forEach((item) => {
-      if (item.source.kind === 'import' && remap.has(item.source.id)) item.source.id = remap.get(item.source.id);
+      if ((item.source.kind === 'import' || item.source.kind === 'plan') && remap.has(item.source.id)) item.source.id = remap.get(item.source.id);
     });
     // Opened as a new scene, so it never overwrites one already here.
     scene.id = newId('scene');
@@ -1100,9 +1314,36 @@ export class SceneMode {
     return raycaster;
   }
 
+  // What is under the pointer: an object, else a floor plan's line or wall (plans are a backdrop,
+  // so they never get in the way of the objects placed on them).
   hitAt(x, y) {
-    return this.raycastAt(x, y).intersectObject(this.editor.root, true)
-      .find((hit) => hit.object.isMesh && hit.object.visible && !hit.object.userData.helper) || null;
+    const hit = this.raycastAt(x, y).intersectObject(this.editor.root, true)
+      .find((candidate) => candidate.object.isMesh && candidate.object.visible && !candidate.object.userData.helper && !candidate.object.userData.planBackdrop && isShown(candidate.object)) || null;
+    return hit || this.planAt(x, y);
+  }
+
+  // A floor plan under the pointer: one of its raised walls, or within a few pixels of one of its
+  // lines. Returned as a hit on the plan's root.
+  planAt(x, y) {
+    const plans = [...this.editor.runtimes.values()].filter((runtime) => runtime.kind === 'plan' && runtime.root.visible);
+    if (!plans.length) return null;
+    const raycaster = this.raycastAt(x, y);
+    const wall = raycaster.intersectObjects(plans.map((runtime) => runtime.component.walls), true)
+      .find((candidate) => candidate.object.isMesh && isShown(candidate.object));
+    if (wall) return wall;
+    const point = raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
+    if (!point) return null;
+    // A few pixels, in metres at that distance from the camera.
+    const { camera } = this.cameraManager;
+    const distance = camera.position.distanceTo(point);
+    const metresPerPixel = (2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / this.domElement.clientHeight;
+    const tolerance = PLAN_PICK_PX * metresPerPixel;
+    // The plan placed last is on top.
+    const found = plans.reverse().find((runtime) => {
+      point.y = runtime.root.getWorldPosition(new THREE.Vector3()).y;
+      return runtime.component.isNear(point, tolerance);
+    });
+    return found ? { object: found.root, point } : null;
   }
 
   floorPointAt(x, y) {
@@ -1114,7 +1355,8 @@ export class SceneMode {
       this.setHover(null);
       return;
     }
-    this.setHover(hit ? this.editor.itemIdFor(hit.object) : null, event);
+    const target = hit || this.planAt(event.clientX, event.clientY);
+    this.setHover(target ? this.editor.itemIdFor(target.object) : null, event);
   }
 
   // Lights up an item the pointer is over (not the selected one), and names it by the pointer.
@@ -1160,6 +1402,12 @@ export class SceneMode {
         : { label: 'Move along with…', icon: 'Link', run: () => this.startAttachPick(item), disabled: playing || editor.items.length < 2 },
     ];
     if (robot) items.push({ label: 'Edit its program', icon: 'ListVideo', run: () => this.revealGroup('Program') });
+    if (runtime?.kind === 'plan') {
+      items.push(
+        { label: 'Layers and walls', icon: 'Layers', run: () => this.revealGroup('Floor plan') },
+        { label: 'Centre on the origin', icon: 'Crosshair', run: () => this.centrePlan(id), disabled: playing || item.locked },
+      );
+    }
     items.push('separator', { label: 'Delete', icon: 'Trash2', shortcut: 'Del', danger: true, run: () => editor.removeItems([id]), disabled: playing });
     this.menu.open({ x, y, title: item.name, items });
   }
@@ -1319,9 +1567,10 @@ export class SceneMode {
 
   // ---- Selecting in the 3D view & Reach ------------------------------------------------------------
 
-  handleClick(hit) {
+  handleClick(hit, event) {
     if (this.editor.gizmoBusy) return;
-    this.editor.select(hit ? this.editor.itemIdFor(hit.object) : null);
+    const target = hit || (event ? this.planAt(event.clientX, event.clientY) : null);
+    this.editor.select(target ? this.editor.itemIdFor(target.object) : null);
   }
 
   // Reach (and its tool tip) works on the selected item when it is a machine with joints.
@@ -1469,9 +1718,11 @@ export class SceneMode {
     this.active = true;
     this.ui.toolbar.hidden = false;
     this.editor.setShown(true);
-    this.picker.setDefault((hit) => this.handleClick(hit), () => this.editor.root, {
+    this.picker.setDefault((hit, event) => this.handleClick(hit, event), () => this.editor.root, {
       owner: 'scene',
       cursor: 'default',
+      // Floor plans are picked only when nothing else is under the pointer (see planAt).
+      filter: (hit) => !hit.object.userData.planBackdrop && isShown(hit.object),
       hover: (hit, event) => this.hoverAt(hit, event),
     });
     this.ui.viewTools.hidden = false;
@@ -1531,6 +1782,11 @@ export class SceneMode {
   update(frameTime) {
     if (!this.active) return;
     this.updateCameraFlight();
+    const digital = this.isDigitalTwin();
+    if (digital !== this.digital) {
+      this.digital = digital;
+      this.editor.runtimes.forEach((runtime) => { if (runtime.kind === 'plan') runtime.component.setDigital(digital); });
+    }
     // Paused: everything holds still. Otherwise the scene runs at the chosen speed.
     const deltaTime = this.simulation ? (this.paused ? 0 : frameTime * this.speed) : frameTime;
     // Programs decide first, robots then move, and physics follows (held boxes go with the tool).

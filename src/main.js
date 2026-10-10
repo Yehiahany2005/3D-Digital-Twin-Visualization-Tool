@@ -12,6 +12,7 @@ import {
   Focus,
   Grid3x3,
   HardDriveDownload,
+  LandPlot,
   LayoutGrid,
   ListTree,
   Maximize,
@@ -47,6 +48,7 @@ import { ReachPanel } from './ui/ReachPanel.js';
 import { StatusMessage } from './ui/StatusMessage.js';
 import { listStoredImports } from './assets/ImportStore.js';
 import { getAssetConfig, registerImportedAsset } from './assets/AssetRegistry.js';
+import { isPlanFile } from './studio/plan/PlanLibrary.js';
 import { ModelTemplates } from './studio/ModelTemplates.js';
 import { SceneMode } from './studio/SceneMode.js';
 import { SelectionHighlight } from './studio/SelectionHighlight.js';
@@ -61,7 +63,7 @@ import './style.css';
 // This file builds the shared view, switches tabs and runs the frame loop. Each tab's exit()
 // puts away everything it owns, so nothing of one tab shows or reacts in the other.
 
-createIcons({ icons: { ArrowDownToDot, Box, CircleHelp, Clapperboard, CopyPlus, Cpu, Crosshair, Download, Factory, Focus, Grid3x3, HardDriveDownload, LayoutGrid, ListTree, Maximize, MousePointer2, Move, Pause, Play, PlayCircle, Plus, RectangleHorizontal, Redo2, Rotate3d, RotateCw, SlidersHorizontal, Square, TerminalSquare, Trash2, Undo2, Upload, Wrench, X } });
+createIcons({ icons: { ArrowDownToDot, Box, CircleHelp, Clapperboard, CopyPlus, Cpu, Crosshair, Download, Factory, Focus, Grid3x3, HardDriveDownload, LandPlot, LayoutGrid, ListTree, Maximize, MousePointer2, Move, Pause, Play, PlayCircle, Plus, RectangleHorizontal, Redo2, Rotate3d, RotateCw, SlidersHorizontal, Square, TerminalSquare, Trash2, Undo2, Upload, Wrench, X } });
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -284,6 +286,7 @@ const sceneEditor = new SceneMode({
   },
   onSceneChange: () => sceneTab.sceneChanged(),
   onScenesSaved: () => sceneTab.refreshSaved(),
+  isDigitalTwin: () => viewManager.isDigitalTwin,
 });
 
 const sceneTab = new SceneTab({
@@ -343,7 +346,8 @@ function setMode(next, options = {}) {
 // before the page was refreshed.
 async function startUp() {
   (await listStoredImports()).forEach(({ id, file }) => {
-    if (!getAssetConfig(id)) registerImportedAsset(file, { id, stored: true });
+    // Floor plans (DXF) are kept with the models but are only used in scenes.
+    if (!isPlanFile(file.name) && !getAssetConfig(id)) registerImportedAsset(file, { id, stored: true });
   });
   await setMode(lastMode() === 'scene' ? 'scene' : 'machine');
 }

@@ -229,7 +229,7 @@ export class PropertiesPanel {
   missingNote(item) {
     const node = element('div', 'prop-missing');
     node.append(element('p', 'editor-message is-error', this.editor.selectedRuntime?.error?.message || 'This model could not be loaded.'));
-    if (item.source.kind === 'import') {
+    if (item.source.kind === 'import' || item.source.kind === 'plan') {
       const relink = element('button', 'primary-button', 'Locate file…');
       relink.type = 'button';
       relink.title = `Choose ${item.source.name || 'the model file'} on this computer`;

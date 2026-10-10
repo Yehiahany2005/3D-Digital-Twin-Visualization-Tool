@@ -131,7 +131,8 @@ export class Simulation {
     const component = runtime.component;
     const linked = Boolean(item.mount || item.attach);
     let type = component?.body || 'none';
-    const colliders = runtime.kind === 'component' ? component.colliders || [] : [];
+    // Catalog parts, and a floor plan's raised walls.
+    const colliders = runtime.kind === 'component' || runtime.kind === 'plan' ? component.colliders || [] : [];
     // Linked items (a box on a gripper, a fixture on a robot) follow what they hang off.
     if (linked && type !== 'none') type = 'kinematic';
 
@@ -149,6 +150,8 @@ export class Simulation {
         const colliderDesc = RAPIER.ColliderDesc.cuboid(x / 2, y / 2, z / 2)
           .setTranslation(...shape.position)
           .setFriction(FRICTION);
+        // Turned shapes (a floor plan's raised walls): rotation in radians, order YXZ.
+        if (shape.rotation) colliderDesc.setRotation(q(new THREE.Quaternion().setFromEuler(new THREE.Euler(...shape.rotation, 'YXZ'))));
         if (type === 'dynamic') colliderDesc.setMass((component?.mass || 8) / colliders.length);
         world.createCollider(colliderDesc, body);
       });
@@ -462,6 +465,9 @@ export class Simulation {
 
 // Whether an item takes part in the simulation (for the Properties hint).
 export function describeBody(item, runtime) {
+  if (runtime?.kind === 'plan') {
+    return runtime.component.body === 'static' ? 'Its raised walls are solid when playing: boxes bump into them.' : 'Only drawn on the floor: nothing bumps into it when playing.';
+  }
   if (runtime?.kind === 'component') {
     const body = runtime.component.body;
     if (runtime.component.belt) return 'Carries boxes along when playing.';

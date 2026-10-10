@@ -6,7 +6,7 @@ import { normalizeScene } from './SceneDocument.js';
 //
 //   scene.json    the scene document
 //   bundle.json   { format, version, models: [{ id, path, name, lastModified, type }], rigs: { key: rig } }
-//   models/…      the imported model files the scene uses
+//   models/…      the imported model files (and DXF floor plans) the scene uses
 //
 // Built-in models aren't copied: every copy of the app has them. Rigs (joints, tool tip, poses,
 // sequences) are included for every model in the scene that has one saved, built-in or imported.
@@ -34,7 +34,7 @@ export async function buildBundle(scene, resolveConfig) {
     }
     const rig = loadRigByKey(rigStorageKey(config));
     if (rig) manifest.rigs[rigStorageKey(config)] = rig;
-    if (source.kind === 'import' && config.file) {
+    if ((source.kind === 'import' || source.kind === 'plan') && config.file) {
       const path = `models/${manifest.models.length + 1}-${safeName(config.file.name)}`;
       // Model files are usually compressed already: store them as they are, it is much faster.
       files[path] = [new Uint8Array(await config.file.arrayBuffer()), { level: 0 }];

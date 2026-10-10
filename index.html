@@ -459,12 +459,14 @@
             <div class="add-drawer-head">
               <input type="search" data-add-search placeholder="Search models and parts…" aria-label="Search models and parts" autocomplete="off" />
               <div class="add-categories" data-add-categories role="group" aria-label="Category"></div>
-              <button type="button" class="add-import" data-add-import title="Import a 3D / CAD file into this scene"><i data-lucide="upload" aria-hidden="true"></i>Import file</button>
+              <button type="button" class="add-import" data-add-plan title="Import a floor plan (AutoCAD .dxf) to place things on"><i data-lucide="land-plot" aria-hidden="true"></i>Floor plan</button>
+              <button type="button" class="add-import" data-add-import title="Import a 3D / CAD file (or a .dxf floor plan) into this scene"><i data-lucide="upload" aria-hidden="true"></i>Import file</button>
               <button type="button" class="add-close" data-add-close aria-label="Close">✕</button>
             </div>
             <div class="add-grid" data-add-grid></div>
             <p class="add-hint" data-add-hint>Click something, then click on the floor to place it. Or drag it onto the floor.</p>
             <input type="file" data-add-import-input hidden />
+            <input type="file" accept=".dxf,.dwg" data-add-plan-input hidden />
           </div>
         </section>
       </section>

@@ -42,7 +42,7 @@ function boxGhost(size) {
 // preview(entry): Promise<{ object, size }> – what follows the pointer while placing
 // place(entry, { position, rotation }) – adds the item
 export class AddDrawer {
-  constructor({ drawer, toggleButton, editor, picker, camera, domElement, scene, entries, preview, place, onImport, onOpenChange }) {
+  constructor({ drawer, toggleButton, editor, picker, camera, domElement, scene, entries, preview, place, onImport, onImportPlan, onOpenChange }) {
     this.drawer = drawer;
     this.toggleButton = toggleButton;
     this.editor = editor;
@@ -71,6 +71,14 @@ export class AddDrawer {
       const [file] = importInput.files;
       importInput.value = '';
       if (file) onImport(file);
+    });
+    // A floor plan (AutoCAD DXF) to lay out the scene on.
+    const planInput = drawer.querySelector('[data-add-plan-input]');
+    drawer.querySelector('[data-add-plan]')?.addEventListener('click', () => planInput.click());
+    planInput?.addEventListener('change', () => {
+      const [file] = planInput.files;
+      planInput.value = '';
+      if (file) onImportPlan(file);
     });
 
     // Dragging a card onto the 3D view places it where it is dropped.

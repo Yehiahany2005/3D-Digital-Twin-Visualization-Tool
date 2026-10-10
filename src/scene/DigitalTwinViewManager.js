@@ -60,8 +60,8 @@ export class DigitalTwinViewManager {
   // robot: what gets the Digital Twin tint (a model, a whole scene, or null for nothing but the floor).
   captureMaterials() {
     this.robot?.traverse((object) => {
-      // Helpers (like the scene editor's selection tint) keep their own look.
-      if (!object.isMesh || !object.material || object.userData.helper) return;
+      // Helpers (like the selection tint) and floor plans keep their own look.
+      if (!object.isMesh || !object.material || object.userData.helper || object.userData.ownLook) return;
       const original = object.material;
       const digital = cloneMaterials(original);
       const working = cloneMaterials(original);

@@ -4,6 +4,8 @@ import { cloneScene, dependentsOf, emptyScene, newId, ROTATION_ORDER, uniqueName
 import { disposeInstance } from './ModelTemplates.js';
 import { getComponent, resolveParams } from './catalog/index.js';
 import { alignment, anchorNamed, anchorsOf, findSnap, worldOf } from './Anchors.js';
+import { FloorPlan } from './plan/FloorPlan.js';
+import { readPlan } from './plan/PlanLibrary.js';
 
 const D2R = Math.PI / 180;
 const HISTORY_LIMIT = 100;
@@ -276,6 +278,20 @@ export class SceneEditor {
       runtime.definition = definition;
       runtime.component = built;
       runtime.content = built.root;
+    } else if (item.source.kind === 'plan') {
+      // A DXF floor plan: drawn on the floor, settings in item.plan (see FloorPlan).
+      const config = await this.resolveConfig(item.source);
+      if (!config?.file) throw Object.assign(new Error(`The floor plan "${item.source.name || item.source.id}" is not on this computer.`), { missingModel: true });
+      const plan = new FloorPlan(await readPlan(item.source.id, config.file));
+      if (runtime.destroyed) {
+        plan.dispose();
+        return;
+      }
+      // Units and layers right away, so the panels opened when it is ready show the real size.
+      plan.setVisualState(this.item(item.id) || item);
+      runtime.kind = 'plan';
+      runtime.component = plan;
+      runtime.content = plan.root;
     } else {
       const config = await this.resolveConfig(item.source);
       if (!config) throw Object.assign(new Error(`The model "${item.source.name || item.source.id}" is not on this computer.`), { missingModel: true });
@@ -508,7 +524,7 @@ export class SceneEditor {
   // Adds an item; position defaults to the origin. Returns its id once committed.
   // fields: anything else the new item should have (a copy's program, pose, solid…).
   addItem({ source, name, position = [0, 0, 0], rotation = [0, 0, 0], params, fields, select = true, label }) {
-    const id = newId(source.kind === 'catalog' ? source.id : 'model');
+    const id = newId(source.kind === 'catalog' ? source.id : source.kind === 'plan' ? 'plan' : 'model');
     const { ready } = this.commit(label || `Add ${name}`, (document) => {
       const item = { ...structuredClone(fields || {}), id, name: uniqueName(document, name), source: { ...source }, position: position.map((value) => round(value)), rotation };
       if (params) item.params = { ...params };

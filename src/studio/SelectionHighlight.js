@@ -20,11 +20,28 @@ export class SelectionHighlight {
       polygonOffsetUnits: -1,
     });
     this.tints = [];
+    this.color = color;
+    this.lineOpacity = Math.min(1, opacity * 3);
   }
 
   set(objects) {
     this.clear();
-    objects.forEach((object) => drawnMeshes(object).forEach((mesh) => this.cover(mesh)));
+    objects.forEach((object) => {
+      drawnMeshes(object).forEach((mesh) => this.cover(mesh));
+      // A floor plan is lines: they are redrawn in the highlight colour.
+      object.traverse((child) => { if (child.isLineSegments && child.userData.planLayer) this.coverLines(child); });
+    });
+  }
+
+  coverLines(lines) {
+    this.lineMaterial ??= new THREE.LineBasicMaterial({ color: this.color, transparent: true, opacity: this.lineOpacity, depthWrite: false });
+    const tint = new THREE.LineSegments(lines.geometry, this.lineMaterial);
+    tint.name = 'Selection tint';
+    tint.userData.helper = true;
+    tint.raycast = () => {};
+    tint.renderOrder = 2;
+    lines.add(tint);
+    this.tints.push(tint);
   }
 
   cover(mesh) {
