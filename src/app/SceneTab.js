@@ -35,8 +35,8 @@ export class SceneTab {
       templates,
       ui: ui.builtInCard,
       onShown: (root) => {
-        // The tint can't follow stations: they swap their own materials (lamps, sensors).
-        view.viewManager.replaceRobot(null, { force: true });
+        // The tint follows the running scene: new products and swapped lamp materials included.
+        view.viewManager.replaceRobot(root, { force: true });
         view.fitTo(root, { tightShadows: true });
       },
       onError: (message) => view.status.error(message),

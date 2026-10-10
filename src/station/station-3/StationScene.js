@@ -6,6 +6,7 @@ import { createProceduralPallet } from './ProceduralPallet.js';
 import { createAssetWrapMachine } from './AssetWrapMachine.js';
 import { getStackFootprint, resolveStationLayout, STATION_DEFINITION } from './StationDefinition.js';
 import { createVacuumGripper, StationCycle } from './StationCycle.js';
+import { resolveTool } from '../../motion/InverseKinematics.js';
 
 const POINT_COLORS = { input: 0x50c7e8, pickup: 0xffc857, output: 0x65d68b, drop: 0xff9f43, beltSurface: 0xffffff, center: 0xb07cff, base: 0xff5f56, tcp: 0xff78c8, bottom: 0xffffff, grasp: 0xff78c8 };
 
@@ -27,6 +28,18 @@ function addDebugFrame(parent, references, visible) {
   debug.visible = visible;
   parent.add(debug);
   return debug;
+}
+
+// Seats the gripper's mounting face on the rig's tool flange, tool axis along the flange axis.
+function mountOnFlange(gripper, rig, tcpJoint) {
+  const flange = resolveTool(rig, rig.tools?.find((tool) => tool.joint === 'axis6'));
+  if (!flange) return;
+  tcpJoint.updateMatrixWorld(true);
+  const inverse = tcpJoint.matrixWorld.clone().invert();
+  const point = flange.position().applyMatrix4(inverse);
+  const axis = flange.direction().transformDirection(inverse);
+  gripper.quaternion.setFromUnitVectors(gripper.userData.toolAxis, axis);
+  gripper.position.copy(point).addScaledVector(axis, gripper.userData.mountOffset);
 }
 
 export class StationScene {
@@ -117,6 +130,7 @@ export class StationScene {
       if (!tcpJoint) throw new Error('ABB station requires the axis6 rig joint to attach the end-effector.');
       const gripper = createVacuumGripper();
       tcpJoint.add(gripper);
+      mountOnFlange(gripper, asset.rig, tcpJoint);
       const boxFactory = () => {
         const box = createProceduralBox(STATION_DEFINITION.box);
         box.root.userData.debugGroup = addDebugFrame(box.root, box.references, this.debug);

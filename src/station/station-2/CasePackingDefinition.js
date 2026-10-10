@@ -8,6 +8,7 @@ export const CASE_PACKING_STATES = Object.freeze({
   PICK_4_CANS: 'PICK_4_CANS',
   PLACE_INTO_BOX: 'PLACE_INTO_BOX',
   BOX_COMPLETED: 'BOX_COMPLETED',
+  CASE_CLOSING: 'CASE_CLOSING',
   OUTPUT: 'OUTPUT',
 });
 
@@ -59,6 +60,8 @@ export const CASE_PACKING_DEFINITION = {
     outputTunnel: { start: 3.95, end: 5.65 },
     spawnX: -3.3,
     packX: 0,
+    /** Case stop under the flap closer, between the packing position and the taper. */
+    closerX: 1.35,
     taperX: 2.3,
     exitX: 4.8,
   },
@@ -74,6 +77,17 @@ export const CASE_PACKING_DEFINITION = {
     /** Gripper origin sits at the handle-grip centre; travel keeps cans above open flaps. */
     travelLift: 0.7,
   },
+  /**
+   * Flap closer tool travel (m). Tools park outside the open-flap envelope;
+   * `out` is measured beyond the case wall, `up` above the flap hinge.
+   */
+  closer: {
+    parkOut: 0.12,
+    pushIn: 0.1,
+    parkUp: 0.27,
+    foldUp: 0.15,
+    plateParkUp: 0.3,
+  },
   timings: {
     lineEmpty: 0.3,
     conveyorStop: 0.5,
@@ -85,10 +99,16 @@ export const CASE_PACKING_DEFINITION = {
     lowerIntoBox: 1.5,
     gripOpen: 0.35,
     retract: 1.0,
-    returnAndFoldEnds: 1.8,
-    foldSides: 1.0,
-    boxClosed: 0.3,
+    robotReturn: 1.8,
+    caseFilled: 0.3,
     releaseStop: 0.35,
+    tuckersLower: 0.4,
+    foldEnds: 0.9,
+    tuckersRetract: 0.6,
+    tampEnds: 0.7,
+    foldSides: 0.9,
+    foldersRetract: 0.4,
+    pressSeal: 1.2,
     outputDone: 0.2,
   },
 };

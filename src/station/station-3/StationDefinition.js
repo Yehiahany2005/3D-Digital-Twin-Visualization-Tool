@@ -22,8 +22,11 @@ export const STATION_DEFINITION = {
     layers: 3,
     spacing: 0.02,
   },
-  /** First-box bottom-left cell origin (XZ). Y is resolved to pallet top at layout time. */
-  stackDropOrigin: { x: -0.5, y: 0, z: 2.2 },
+  /**
+   * First-box bottom-left cell origin (XZ). Y is resolved to pallet top at layout time.
+   * z keeps every cell inside the robot's reach with the suction cup held flat.
+   */
+  stackDropOrigin: { x: -0.5, y: 0, z: 2.4 },
   pallet: {
     height: 0.144,
     overhang: 0.08,
