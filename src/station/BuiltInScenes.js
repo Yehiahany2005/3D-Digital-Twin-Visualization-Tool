@@ -4,6 +4,7 @@ import { CasePackingStation } from './station-2/CasePackingStation.js';
 import { StationScene } from './station-3/StationScene.js';
 import { LubricantFactory } from './factory/LubricantFactory.js';
 import { FactoryOverlay } from './factory/FactoryOverlay.js';
+import { LoadingScreen } from './LoadingScreen.js';
 
 // Built-in scenes: production lines built in code (this folder). Unlike scenes made in the
 // editor they can't be changed, only run: Start, Reset, Speed and a live status read-out, all in
@@ -181,6 +182,7 @@ export class BuiltInScenes {
     this.robot = null;
     this.opening = 0;
     this.refreshTimer = 0;
+    this.loading = typeof document !== 'undefined' ? new LoadingScreen(context.container) : null;
 
     // Start and Reset show their effect at once rather than at the next status refresh.
     ui.start.addEventListener('click', () => {
@@ -223,6 +225,9 @@ export class BuiltInScenes {
     if (!entry) return false;
     this.close();
     const ticket = ++this.opening;
+    // Cover the view before anything is built, so a half-built scene never shows.
+    await this.loading?.show({ title: entry.name, subtitle: entry.type });
+    if (ticket !== this.opening) return false;
     const runtime = this.runtimeFor(entry);
     this.renderCard(entry);
     try {
@@ -233,6 +238,7 @@ export class BuiltInScenes {
       console.error(`${entry.name} could not be opened.`, error);
       this.onError?.(`Couldn't open ${entry.name}: ${error.message || 'unknown error'}`);
       this.ui.card.hidden = true;
+      if (ticket === this.opening) this.loading?.hideNow();
       return false;
     }
     // Leaving (or opening another scene) while this one was still loading.
@@ -244,11 +250,13 @@ export class BuiltInScenes {
     runtime.setSpeed(Number(this.ui.speed.value));
     this.onShown?.(runtime.root);
     this.renderStatus();
+    this.loading?.hide();
     return true;
   }
 
   close() {
     this.opening += 1;
+    this.loading?.hideNow();
     if (!this.active) {
       this.ui.card.hidden = true;
       return;

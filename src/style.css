@@ -2573,3 +2573,82 @@ body.is-scrubbing * { cursor: ew-resize !important; user-select: none; }
 .scene-empty .scene-empty-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; border: 0; background: none; color: var(--muted); font-size: 0.74rem; cursor: pointer; padding: 0.1rem; }
 .scene-empty .scene-empty-secondary svg { width: 14px; height: 14px; }
 .scene-empty .scene-empty-secondary:hover { color: var(--accent); }
+
+/* Loading screen over the 3D view while a built-in scene is built (src/station/LoadingScreen.js). */
+.scene-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(105, 199, 211, 0.08), transparent 60%),
+    var(--app-bg);
+  opacity: 1;
+  transition: opacity 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.scene-loading[hidden] { display: none; }
+.scene-loading.is-leaving { opacity: 0; pointer-events: none; }
+
+.scene-loading-card {
+  display: grid;
+  justify-items: center;
+  gap: 0.55rem;
+  max-width: 28rem;
+  text-align: center;
+}
+
+.scene-loading-kicker {
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.scene-loading-title {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+.scene-loading-subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.scene-loading-bar {
+  position: relative;
+  width: min(14rem, 70vw);
+  height: 3px;
+  margin-top: 0.9rem;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--border);
+}
+
+.scene-loading-bar span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: scene-loading-slide 1.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes scene-loading-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-loading { transition-duration: 0s; }
+  .scene-loading-bar span { animation: none; width: 100%; opacity: 0.6; }
+}
