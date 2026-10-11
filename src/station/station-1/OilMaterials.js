@@ -105,8 +105,11 @@ export function createOilStationMaterials() {
     frameDark: standard({ color: 0x2b3136, metalness: 0.45, roughness: 0.48 }),
     motor: standard({ color: 0x4f6475, metalness: 0.45, roughness: 0.42 }),
     safetyYellow: standard({ color: 0xe0a621, metalness: 0.15, roughness: 0.5 }),
-    floorLine: standard({ color: 0xd9a21e, metalness: 0, roughness: 0.7 }),
-    floor: standard({ color: 0x59625f, metalness: 0.05, roughness: 0.86 }),
+    // The slab top sits millimetres above the scene floor and the markings just above the slab,
+    // closer than the depth buffer resolves at viewing distance. Polygon offset makes them win
+    // the depth test instead of flickering as the camera moves.
+    floorLine: standard({ color: 0xd9a21e, metalness: 0, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    floor: standard({ color: 0x59625f, metalness: 0.05, roughness: 0.86, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
     rubber: standard({ color: 0x1b1d1f, metalness: 0.02, roughness: 0.86 }),
     plasticBlack: standard({ color: 0x202326, metalness: 0.1, roughness: 0.45 }),
     guide: standard({ color: 0xe6e3d8, metalness: 0, roughness: 0.55 }),
