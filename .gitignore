@@ -17,3 +17,6 @@ Thumbs.db
 .env
 .env.local
 floor-plan-shots/
+
+# Local-only planning docs
+docs/*.md
